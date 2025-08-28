@@ -1,0 +1,9 @@
+.env
+media
+logo
+openenv
+data
+*.jpg
+*.zip
+leads.db
+__pycache__
