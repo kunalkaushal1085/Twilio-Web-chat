@@ -1,0 +1,10 @@
+media
+logo
+openenv
+data
+*.jpg
+*.zip
+leads.db
+__pycache__
+config.bat
+node_modules
