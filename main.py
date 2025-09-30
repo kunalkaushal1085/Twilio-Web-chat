@@ -16,7 +16,6 @@ from helper import get_available_time_slots, parse_slot_selection, parse_budget_
 from file_embaded import answer_from_uploaded_file
 import traceback
 from dotenv import load_dotenv
-from file_embaded import answer_from_uploaded_file
 from datetime import datetime, timedelta
 from jose import jwt
 from passlib.context import CryptContext
