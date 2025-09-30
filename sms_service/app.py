@@ -1,5 +1,6 @@
 import os
 import json
+import uuid
 from datetime import datetime
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, abort, url_for
@@ -7,6 +8,18 @@ from flask_sqlalchemy import SQLAlchemy
 from twilio.rest import Client
 from twilio.twiml.messaging_response import MessagingResponse
 
+from file_embaded import answer_from_uploaded_file
+from sms_schemas import SMSLead, SMSMessageSchema, SMSChatResponseSchema
+from sms_sqlite_utils import (
+    get_lead_from_db, save_lead_to_db, get_all_leads_from_db,
+    detect_recruiting_inquiry, generate_recruiting_response,
+    ensure_admin_table,store_uploaded_file_info,store_versioned_dataset, get_active_dataset_version, 
+    get_all_dataset_versions, set_active_dataset_version,ensure_welcome_table,
+    get_welcome_message,
+    store_uploaded_file_info, ensure_dataset_versions_table,
+    initialize_sms_sqlite_db
+)
+import asyncio
 
 # # Load local .env only if present (safe for dev)
 load_dotenv()
@@ -35,20 +48,33 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 # DB model
-class Message(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    sid = db.Column(db.String(64), index=True, nullable=True)
-    from_number = db.Column(db.String(32))
-    to_number = db.Column(db.String(32))
-    body = db.Column(db.Text)
-    direction = db.Column(db.String(10))  # 'inbound' or 'outbound'
-    status = db.Column(db.String(32), default="received")
-    error_code = db.Column(db.String(32), nullable=True)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+# class Message(db.Model):
+#     id = db.Column(db.Integer, primary_key=True)
+#     sid = db.Column(db.String(64), index=True, nullable=True)
+#     from_number = db.Column(db.String(32))
+#     to_number = db.Column(db.String(32))
+#     body = db.Column(db.Text)
+#     direction = db.Column(db.String(10))  # 'inbound' or 'outbound'
+#     status = db.Column(db.String(32), default="received")
+#     error_code = db.Column(db.String(32), nullable=True)
+#     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+@app.before_request
+def on_startup():
+    ensure_admin_table()
+    ensure_welcome_table()
+    initialize_sms_sqlite_db()
+    # store_uploaded_file_info()
+    # ensure_dataset_versions_table()
+    # ensure_quicklink_table()
+    # ensure_theme_table()
+    # ensure_appointment_table()
+
 
 # Send SMS endpoint
 @app.route("/send-sms", methods=["POST"])
-def send_sms():
+async def send_sms():
     data = request.get_json(force=True)
     to = data.get("to")
     body = data.get("message")
@@ -62,66 +88,94 @@ def send_sms():
     )
 
     # Save outbound message
-    db_msg = Message(
-        sid=message.sid,
-        from_number=TWILIO_NUMBER,
-        to_number=to,
-        body=body,
-        direction="outbound",
-        status=message.status,
-    )
-    db.session.add(db_msg)
-    db.session.commit()
+    # db_msg = SMSMessageSchema(
+    #     sid=message.sid,
+    #     from_number=TWILIO_NUMBER,
+    #     to_number=to,
+    #     body=body,
+    #     direction="outbound",
+    #     status=message.status,
+    # )
+    # db.session.add(db_msg)
+    # db.session.commit()
 
+    lead = SMSLead(id=message.sid, qualification_stage="initial_chat")
+    lead.conversation_history.append(SMSMessageSchema(sender="bot", text=body))
+    lead.last_active_timestamp = datetime.now()
+    await save_lead_to_db(lead)
+    
     return jsonify({"status": "queued", "sid": message.sid}), 200
 
 # Receive SMS endpoint
 
 @app.route("/receive-sms", methods=["GET", "POST"])
-def receive_sms():
-    payload = request.form.get("Payload") 
-    from_number = None
-    to_number = None
-    body = None
-
-    if payload: 
-        try: 
-            payload_data = json.loads(payload)
-            msg_data = payload_data.get("webhook", {}).get("request", {}).get("parameters", {})
-            from_number = msg_data.get("From")
-            to_number = msg_data.get("To")
-            body = msg_data.get("Body") or msg_data.get("SmsBody")
-        except Exception as e: 
-            print("❌ Error parsing payload:", e) 
-
-    # If parsing failed or payload wasn't present, fallback to regular form fields
-    if not from_number:
+async def receive_sms():
+    try:
         from_number = request.form.get("From")  # You had "Form" — typo?
-    if not to_number:
         to_number = request.form.get("To")
-    if not body:
         body = request.form.get("Body")
+    except Exception as e:
+        raise Exception(e.__str__())
 
     # Debug log
     print(f"📩 Incoming SMS from {from_number}: {body}")
+    lead = await get_lead_from_db(from_number)
 
     # Save to DB (assuming Message and db are correctly defined)
-    db_msg = Message( 
-        sid=None, 
-        from_number=from_number, 
-        to_number=to_number, 
-        body=body, 
-        direction="inbound", 
-        status="received", 
-    )
-    db.session.add(db_msg) 
-    db.session.commit() 
-    print("✅ Saved inbound SMS to DB.")
+    # db_msg = Message(
+    #     # sid=request.form.get('SmsSid', None),
+    #     sid=None,
+    #     from_number=from_number, 
+    #     to_number=to_number, 
+    #     body=body, 
+    #     direction="inbound", 
+    #     status="received", 
+    # )
+    # db.session.add(db_msg) 
+    # db.session.commit() 
+    # print("✅ Saved inbound SMS to DB.")
 
-    # Return TwiML response
-    resp = MessagingResponse()
-    resp.message("✅ Thanks — we received your message.")
-    return str(resp), 200, {'Content-Type': 'application/xml'}
+    print("✅====lead data from DB===", lead)
+    if not lead:
+        user_id = f"anon_{int(datetime.now().timestamp())}_{str(uuid.uuid4())[:8]}"
+        lead = SMSLead(id=user_id, phone_number=from_number, qualification_stage="initial_chat")
+        lead.conversation_history.append(SMSMessageSchema().load({"sender":"user", "text":body }) )
+        bot_message = "Hello! I'm Nia from The Paul Group. I'm here to help you with your final expense insurance questions. What would you like to know about our burial insurance coverage?"
+        lead.conversation_history.append(SMSMessageSchema().load({"sender":"bot", "text":bot_message}) )
+        lead.last_active_timestamp = datetime.now()
+        await save_lead_to_db(lead)
+        print('\n=======Lead Saved to Db=====✅')
+
+        # Return TwiML response
+        resp = MessagingResponse()
+        resp.message(bot_message)
+        print('\n=======Bot Msg Prepared=====✅')
+        return str(resp), 200, {'Content-Type': 'application/xml'}
+    
+    # If not a new lead, proceed to add user message and process
+    lead.last_active_timestamp = datetime.now()
+    lead.conversation_history.append(SMSMessageSchema().load({"sender":"user", "text":body}))
+    faq_answer = await answer_from_uploaded_file(body)
+
+    print('⚠=====faq_answer=====⚠',faq_answer)
+
+    if faq_answer:
+        lead.conversation_history.append(
+            SMSMessageSchema().load({"sender":"bot", "text":faq_answer})
+        )
+        await save_lead_to_db(lead)
+        # Return TwiML response
+        resp = MessagingResponse()
+        resp.message(faq_answer)
+        return str(resp), 200, {'Content-Type': 'application/xml'}
+        # return SmsChatResponse(
+        #     bot_message          = faq_answer,
+        #     lead_status          = lead.qualification_stage, 
+        #     lead_data            = lead.model_dump(exclude_none=True),
+        #     conversation_history = lead.conversation_history,
+        #     user_id              = from_number  
+        # )
+    else: print('🚨=====FAQ and not found====🚨')
 
 # Status callback endpoint
 @app.route("/sms/status", methods=["POST"])

@@ -242,6 +242,7 @@ import json
 from typing import List, Optional
 from datetime import datetime
 import re
+import asyncio
 from sms_schemas import LEAD_QUALIFICATION_STAGES
 
 # ------------------------ Data Models ------------------------
@@ -291,7 +292,7 @@ class SMSLead:
 
 
 # ------------------------ Config ------------------------
-DATABASE_FILE = "leads.db"
+DATABASE_FILE = "../leads.db"
 
 # Recruiting keywords
 SMS_RECRUITING_KEYWORDS = [
@@ -399,7 +400,7 @@ def generate_recruiting_response(message: str = None) -> str:
     return SMS_RECRUITING_RESPONSE
 
 # ------------------------ DB CRUD ------------------------
-def save_lead_to_db(lead: SMSLead):
+async def save_lead_to_db(lead: SMSLead):
     """Insert or update lead in SQLite."""
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
@@ -408,9 +409,9 @@ def save_lead_to_db(lead: SMSLead):
     # Serialize conversation history
     serialized_history = [
         {
-            "sender": msg.sender,
-            "text": msg.text,
-            "timestamp": msg.timestamp.isoformat()
+            "sender": msg["sender"],
+            "text": msg["text"],
+            "timestamp": msg["timestamp"].isoformat()
         }
         for msg in lead.conversation_history
     ]
@@ -424,7 +425,7 @@ def save_lead_to_db(lead: SMSLead):
 
     # Detect recruiting
     lead_dict['is_recruiting_inquiry'] = any(
-        detect_recruiting_inquiry(msg.text) for msg in lead.conversation_history if msg.sender == "user"
+        detect_recruiting_inquiry(msg["text"]) for msg in lead.conversation_history if msg["sender"] == "user"
     )
 
     columns = [
@@ -442,12 +443,12 @@ def save_lead_to_db(lead: SMSLead):
     conn.commit()
     conn.close()
 
-def get_lead_from_db(lead_id: str) -> Optional[SMSLead]:
+async def get_lead_from_db(phone_number: str) -> Optional[SMSLead]:
     """Retrieve lead by ID."""
     conn = sqlite3.connect(DATABASE_FILE)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM sms_leads WHERE id=?', (lead_id,))
+    cursor.execute('SELECT * FROM sms_leads WHERE phone_number=?', (phone_number,))
     row = cursor.fetchone()
     conn.close()
     if row:
@@ -456,11 +457,13 @@ def get_lead_from_db(lead_id: str) -> Optional[SMSLead]:
         try:
             raw_history = json.loads(row['conversation_history'])
             for msg in raw_history:
-                history.append(SMSMessage(
-                    sender=msg['sender'],
-                    text=msg['text'],
-                    timestamp=datetime.fromisoformat(msg['timestamp'])
-                ))
+                history.append(
+                    SMSMessage().load({
+                        "sender":msg['sender'],
+                        "text":msg['text'],
+                        "timestamp":datetime.fromisoformat(msg['timestamp'])
+                    })
+                )
         except:
             history = []
 
@@ -512,3 +515,274 @@ def get_all_leads_from_db() -> List[SMSLead]:
         if lead:
             leads.append(lead)
     return leads
+
+
+# Example usage function for testing
+def test_recruiting_detection():
+    """Test function to verify recruiting detection works correctly."""
+    test_messages = [
+        "Hi, I'm interested in a sales position",
+        "Are you hiring?",
+        "Looking for a job opportunity",
+        "I want to join your team",
+        "Is this for agents?",
+        "I'm licensed in life insurance",
+        "I want to get licensed",
+        "Do you have any career opportunities?",
+        "I'm looking for work from home jobs",
+        "What insurance do you offer?",  # Should not trigger
+        "I need life insurance quotes"   # Should not trigger
+    ]
+   
+    print("Testing recruiting detection:")
+    for msg in test_messages:
+        is_recruiting = detect_recruiting_inquiry(msg)
+        print(f"'{msg}' -> Recruiting: {is_recruiting}")
+        if is_recruiting:
+            response = generate_recruiting_response(msg)
+            print(f"Response: {response[:100]}...")
+        print("-" * 50)
+ 
+#working code
+def store_uploaded_file_info(file_id: str, chunks_created: int):
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+ 
+    # Create table if not exists
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS uploaded_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_id TEXT,
+            chunks_created INTEGER
+        )
+    ''')
+ 
+    # Insert record
+    cursor.execute('''
+        INSERT INTO uploaded_files (file_id, chunks_created)
+        VALUES (?, ?)
+    ''', (file_id, chunks_created))
+ 
+    conn.commit()
+    conn.close()
+ 
+ 
+# use this code insted of previous
+# sqlite_utils.py - ADD these functions to your existing file
+ 
+def ensure_dataset_versions_table():
+    """Create versioning table alongside existing uploaded_files table."""
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+   
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS dataset_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version_label TEXT UNIQUE NOT NULL,
+            description TEXT,
+            total_records INTEGER,
+            upload_timestamp TEXT NOT NULL,
+            is_active BOOLEAN DEFAULT FALSE,
+            file_ids TEXT NOT NULL,
+            created_by TEXT
+        );
+    """)
+   
+    conn.commit()
+    conn.close()
+ 
+def store_versioned_dataset(version_label: str, description: str, file_ids: list,
+                           total_records: int, created_by: str = None):
+    """Store a versioned dataset and make it active."""
+    ensure_dataset_versions_table()
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+   
+    try:
+        # Deactivate all previous versions
+        cursor.execute("UPDATE dataset_versions SET is_active = 0")
+       
+        # Insert new version as active
+        cursor.execute("""
+            INSERT INTO dataset_versions
+            (version_label, description, total_records, upload_timestamp, is_active, file_ids, created_by)
+            VALUES (?, ?, ?, ?, 1, ?, ?)
+        """, (
+            version_label,
+            description,
+            total_records,
+            datetime.now().isoformat(),
+            json.dumps(file_ids),
+            created_by
+        ))
+       
+        # Insert into uploaded_files table (in the SAME connection)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS uploaded_files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_id TEXT,
+                chunks_created INTEGER
+            )
+        ''')
+       
+        # Insert each file_id into uploaded_files
+        for file_id in file_ids:
+            cursor.execute('''
+                INSERT INTO uploaded_files (file_id, chunks_created)
+                VALUES (?, ?)
+            ''', (file_id, len(file_ids)))
+       
+        conn.commit()
+       
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+ 
+def get_active_dataset_version():
+    """Get currently active dataset version."""
+    ensure_dataset_versions_table()
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+   
+    cursor.execute("""
+        SELECT version_label, file_ids, total_records
+        FROM dataset_versions
+        WHERE is_active = 1
+        LIMIT 1
+    """)
+    row = cursor.fetchone()
+    conn.close()
+   
+    if row:
+        return {
+            "version": row[0],
+            "file_ids": json.loads(row[1]),
+            "total_records": row[2]
+        }
+    return None
+ 
+def get_all_dataset_versions():
+    """List all dataset versions."""
+    ensure_dataset_versions_table()
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+   
+    cursor.execute("""
+        SELECT version_label, description, total_records, upload_timestamp,
+               is_active, created_by
+        FROM dataset_versions
+        ORDER BY upload_timestamp DESC
+    """)
+   
+    versions = []
+    for row in cursor.fetchall():
+        versions.append({
+            "version": row[0],
+            "description": row[1] or "",
+            "total_records": row[2],
+            "upload_timestamp": row[3],
+            "is_active": bool(row[4]),
+            "created_by": row[5] or "Unknown"
+        })
+   
+    conn.close()
+    return versions
+ 
+def set_active_dataset_version(version_label: str):
+    """Switch active dataset version."""
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+   
+    # Check if version exists
+    cursor.execute("SELECT id FROM dataset_versions WHERE version_label = ?", (version_label,))
+    if not cursor.fetchone():
+        conn.close()
+        return False
+   
+    # Deactivate all, then activate the target
+    cursor.execute("UPDATE dataset_versions SET is_active = 0")
+    cursor.execute("UPDATE dataset_versions SET is_active = 1 WHERE version_label = ?", (version_label,))
+   
+    conn.commit()
+    conn.close()
+    return True
+
+
+def ensure_admin_table() -> None:
+    """
+    Creates the admin table if it doesn’t exist.
+    Columns:
+        id        INTEGER autoincrement primary-key
+        email     UNIQUE text
+        password  bcrypt-hashed text
+    """
+    conn = sqlite3.connect(DATABASE_FILE)
+    cur  = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS admin (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            email    TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL
+        );
+    """)
+    conn.commit()
+    conn.close()
+ 
+def get_admin_by_email(email: str) -> Optional[dict]:
+    conn = sqlite3.connect(DATABASE_FILE)
+    cur  = conn.cursor()
+    cur.execute("SELECT id, email, password FROM admin WHERE email = ?", (email.lower(),))
+    row = cur.fetchone()
+    conn.close()
+    if row:
+        return {"id": row[0], "email": row[1], "password": row[2]}
+    return None
+ 
+ 
+def create_admin(email: str, hashed_pw: str) -> dict:
+    ensure_admin_table()
+    conn = sqlite3.connect(DATABASE_FILE)
+    cur  = conn.cursor()
+    cur.execute(
+        "INSERT INTO admin (email, password) VALUES (?, ?)",
+        (email.lower(), hashed_pw)
+    )
+    conn.commit()
+    admin_id = cur.lastrowid
+    conn.close()
+    return {"id": admin_id, "email": email.lower()}
+ 
+ 
+def update_admin_password(admin_id: int, hashed_pw: str) -> None:
+    conn = sqlite3.connect(DATABASE_FILE)
+    cur  = conn.cursor()
+    cur.execute(
+        "UPDATE admin SET password = ? WHERE id = ?",
+        (hashed_pw, admin_id)
+    )
+    conn.commit()
+    conn.close()
+ 
+#sahil
+def ensure_welcome_table():
+    conn = sqlite3.connect(DATABASE_FILE)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS welcome_message (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            message TEXT NOT NULL
+        )
+    """)
+    cur.execute("INSERT OR IGNORE INTO welcome_message (id, message) VALUES (1, 'Welcome to the Admin Panel')")
+    conn.commit()
+    conn.close()
+ 
+def get_welcome_message() -> str:
+    conn = sqlite3.connect(DATABASE_FILE)
+    cur = conn.cursor()
+    cur.execute("SELECT message FROM welcome_message WHERE id = 1")
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else ""
