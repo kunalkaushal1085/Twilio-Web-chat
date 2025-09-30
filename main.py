@@ -13,7 +13,7 @@ import shutil
 import json 
 from typing import List, Optional, Dict,Any
 from helper import get_available_time_slots, parse_slot_selection, parse_budget_amount
-from file_embaded import answer_from_uploaded_file
+from sms_service.file_embaded import answer_from_uploaded_file
 import traceback
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
