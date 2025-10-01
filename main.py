@@ -13,10 +13,9 @@ import shutil
 import json 
 from typing import List, Optional, Dict,Any
 from helper import get_available_time_slots, parse_slot_selection, parse_budget_amount
-from file_embaded import answer_from_uploaded_file
+from sms_service.file_embaded import answer_from_uploaded_file
 import traceback
 from dotenv import load_dotenv
-from file_embaded import answer_from_uploaded_file
 from datetime import datetime, timedelta
 from jose import jwt
 from passlib.context import CryptContext
@@ -35,8 +34,7 @@ from auths import (
 security = HTTPBearer()
 
 # --- OpenAI Client Imports ---
-from openai import AsyncOpenAI 
-from openai import APIError 
+from openai import AsyncOpenAI
 
 # This MUST run BEFORE OpenAI() is called if your key is in .env
 load_dotenv()
@@ -92,19 +90,22 @@ AGENT_NAME = os.getenv("AGENT_NAME", "The Paul Group AI")
 
 # Get the API key from environment variables (set by load_dotenv if from .env file)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") 
+# client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+OPENAI_MODEL = "gpt-3.5-turbo" 
 # Check if the key is available before initializing the client
 if not OPENAI_API_KEY:
     print("CRITICAL ERROR: OPENAI_API_KEY is not set. Please ensure it's in your .env file or system environment.")
 
 # Choose your desired OpenAI model
-OPENAI_MODEL = "gpt-3.5-turbo" 
 
 # Initialize OpenAI client
-client = None # Initialize as None; it will be set if API key is found
+# client = None # Initialize as None; it will be set if API key is found
+openai_client =None
 if OPENAI_API_KEY: # Only attempt to initialize if the API key is available
     try:
-        client = AsyncOpenAI()
+        # client = AsyncOpenAI() # Old incorrect initialization
+        openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
         print("OpenAI client initialized successfully.")
     except Exception as e:
         print(f"ERROR: Failed to initialize OpenAI client. Please check your API key, network, and firewall settings: {e}")
@@ -140,7 +141,7 @@ async def get_openai_response(chat_history: List[Message], system_prompt: str) -
     Calls the OpenAI API to get a response using the provided system prompt.
     Handles API-specific errors.
     """
-    if client is None:
+    if openai_client is None:
         print("DEBUG: OpenAI client is not initialized, cannot get response for chat.")
         return "I cannot connect to my AI services at the moment. Please inform the administrator."
 
@@ -154,7 +155,13 @@ async def get_openai_response(chat_history: List[Message], system_prompt: str) -
         })
         
     try:
-        completion = await client.chat.completions.create(
+        # completion = await client.chat.completions.create(
+        #     model=OPENAI_MODEL,
+        #     messages=messages_for_api,
+        #     temperature=0.7,
+        #     max_tokens=500
+        # )
+        completion = await openai_client.chat.completions.create( # <--- This is correct
             model=OPENAI_MODEL,
             messages=messages_for_api,
             temperature=0.7,
@@ -999,6 +1006,9 @@ def read_appointment(appointment_id: int):
     if not appt:
         raise HTTPException(status_code=404, detail="Appointment not found")
     return appt
+
+
+
 
 # --- Main entry point for Uvicorn ---
 if __name__ == "__main__":
