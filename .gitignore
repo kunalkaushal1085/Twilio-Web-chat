@@ -1,4 +1,3 @@
-.env
 media
 logo
 openenv
@@ -7,3 +6,5 @@ data
 *.zip
 leads.db
 __pycache__
+config.bat
+node_modules
