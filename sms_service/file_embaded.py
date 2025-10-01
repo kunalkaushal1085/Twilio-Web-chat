@@ -128,9 +128,9 @@ async def download_uploaded_dataset(file_id: str) -> list[dict]:
     lines = raw.decode("utf-8").splitlines()
     return [json.loads(line) for line in lines]
 
-def _get_latest_file_id() -> Optional[str]:
+def _get_latest_file_id(database_file:str = DATABASE_FILE) -> Optional[str]:
     """Return newest file_id from uploaded_files table (or None)."""
-    conn = sqlite3.connect(DATABASE_FILE)
+    conn = sqlite3.connect(database_file)
     cursor = conn.cursor()
     cursor.execute("SELECT file_id FROM uploaded_files ORDER BY id DESC LIMIT 1")
     row = cursor.fetchone()
@@ -167,8 +167,8 @@ async def build_embedding_cache(file_id: str) -> Tuple[np.ndarray, List[str]]:
     
     return _cached_vectors, _cached_answers
 
-async def answer_from_uploaded_file(user_msg: str) -> Optional[str]:
-    file_id = _get_latest_file_id()
+async def answer_from_uploaded_file(user_msg: str, database_file:str = DATABASE_FILE) -> Optional[str]:
+    file_id = _get_latest_file_id(database_file)
     if not file_id:
         return None
 

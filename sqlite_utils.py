@@ -970,7 +970,7 @@ def ensure_appointment_table():
 def save_appointment_to_db_from_lead(lead) -> int:
     """
     Insert appointment from a confirmed lead object.
-    Expects: lead.id, lead.full_name, lead.age, lead.state_of_residence, lead.selected_time_slot
+    Expects: lead.id, lead.full_name, lead.age, lead.state_of_residence, lead.selected_time_slot, lead.ticket_number
     Sets status=True because booking is confirmed.
     """
     if not getattr(lead, "id", None):
@@ -985,14 +985,15 @@ def save_appointment_to_db_from_lead(lead) -> int:
     created_at = datetime.now().isoformat()
  
     cur.execute("""
-        INSERT INTO appointment (lead_id, name, age, state, booking_date, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO appointment (lead_id, name, age, state, booking_date, ticket_no, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         lead.id,
         getattr(lead, "full_name", None),
         getattr(lead, "age", None),
         getattr(lead, "state_of_residence", None),
         getattr(lead, "selected_time_slot", None),
+        getattr(lead, "ticket_number", None),
         True,  # confirmed
         created_at
     ))

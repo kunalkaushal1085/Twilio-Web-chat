@@ -232,7 +232,7 @@ async def chat_with_bot(chat_request: ChatRequest):
     # If not a new lead, proceed to add user message and process
     lead.last_active_timestamp = datetime.now()
     lead.conversation_history.append(Message(sender="user", text=user_message))
-    faq_answer = await answer_from_uploaded_file(user_message)
+    faq_answer = await answer_from_uploaded_file(user_message, 'leads.db')
 # ____________-___________________________________________
     if faq_answer:
         lead.conversation_history.append(
