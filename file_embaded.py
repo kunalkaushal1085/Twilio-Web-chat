@@ -92,13 +92,11 @@ import json, sqlite3, aiofiles, asyncio
 from functools import lru_cache
 import numpy as np
 from dotenv import load_dotenv
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 load_dotenv()
 
 EMBED_MODEL = "text-embedding-3-small" 
-DATABASE_FILE = "../leads.db"
+DATABASE_FILE = "leads.db"
 SIM_THRESHOLD = 0.80  # Lowered for better matching
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
