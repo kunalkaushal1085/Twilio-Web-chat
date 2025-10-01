@@ -245,6 +245,12 @@ import re
 import asyncio
 from sms_schemas import LEAD_QUALIFICATION_STAGES
 
+
+# ------------------------ Variables ------------------------
+LICENSED_RESPONSE = "Awesome! We work with agents in the states of CA, Alaska, New Mexico, TX, VA, Colorado, Montana, Illinois, Idaho, Utah, Oregon, Nevada, AZ, Hawaii, Wisconsin,Florida. You'll be connected with a manager shortly"
+NOT_LICENSED_RESPONSE = "No worries — we help people get licensed and start earning quickly. A recruiter will reach out to you soon."
+
+
 # ------------------------ Data Models ------------------------
 class SMSMessage:
     def __init__(self, sender: str, text: str, timestamp: datetime = None):
@@ -318,7 +324,7 @@ SMS_NOT_LICENSED_RESPONSE = "No worries — we help SMS applicants get licensed 
 # ------------------------ DB Setup ------------------------
 def migrate_sms_database():
     """Adds missing columns for SMS table if not present."""
-    conn = sqlite3.connect(DATABASE_FILE)
+    conn = sqlite3.connect(DATABASE_FILE, timeout=30)
     cursor = conn.cursor()
     
     try:
@@ -436,6 +442,10 @@ async def save_lead_to_db(lead: SMSLead):
     ]
     values = [lead_dict.get(col) for col in columns]
     placeholders = ','.join(['?']*len(columns))
+
+    print('=====Values====\n',values,'\n')
+    print('=====placeholders====\n',placeholders,'\n')
+
     cursor.execute(f'''
         INSERT OR REPLACE INTO sms_leads ({','.join(columns)}) 
         VALUES ({placeholders})
@@ -499,6 +509,26 @@ async def get_lead_from_db(phone_number: str) -> Optional[SMSLead]:
             ticket_number=row['ticket_number'],
             is_recruiting_inquiry=row['is_recruiting_inquiry']
         )
+
+
+        return SMSLead().load({
+            "id":row['id'],
+            "phone_number":row['phone_number'],
+            "full_name":row['full_name'],
+            "age":row['age'],
+            "state_of_residence":row['state_of_residence'],
+            "general_health":row['general_health'],
+            "health_conditions":row['health_conditions'],
+            "budget_range":row['budget_range'],
+            "best_contact_time":row['best_contact_time'],
+            "available_slots":available_slots,
+            "selected_time_slot":row['selected_time_slot'],
+            "qualification_stage":row['qualification_stage'],
+            "conversation_history":history,
+            "last_active_timestamp":last_active,
+            "ticket_number":row['ticket_number'],
+            "is_recruiting_inquiry":row['is_recruiting_inquiry']
+        })
     return None
 
 def get_all_leads_from_db() -> List[SMSLead]:
@@ -786,3 +816,100 @@ def get_welcome_message() -> str:
     row = cur.fetchone()
     conn.close()
     return row[0] if row else ""
+
+def handle_licensing_status_response(message: str) -> str:
+    """
+    Handles follow-up responses about licensing status.
+    
+    Args:
+        message (str): The response about licensing status
+        
+    Returns:
+        str: Appropriate follow-up response
+    """
+    message_lower = message.lower().strip()
+    
+    # Positive responses indicating they are licensed
+    licensed_indicators = [
+        "yes", "licensed", "i'm licensed", "i am licensed", "already licensed",
+        "have my license", "got my license", "certified"
+    ]
+    
+    # Negative responses indicating they are not licensed
+    not_licensed_indicators = [
+        "no", "not licensed", "don't have", "need to get", "want to get",
+        "looking to get", "not yet", "working on it"
+    ]
+    
+    if any(indicator in message_lower for indicator in licensed_indicators):
+        return LICENSED_RESPONSE
+    elif any(indicator in message_lower for indicator in not_licensed_indicators):
+        return NOT_LICENSED_RESPONSE
+    else:
+        # If unclear, ask for clarification
+        return "Could you clarify if you currently have a life insurance license? This will help me connect you with the right person."
+
+
+#Appointment Booking
+def ensure_appointment_table():
+    """
+    Ensures the appointment table exists with a foreign key referencing leads.id,
+    and includes columns for name, age, state, booking_date, status (boolean), created_at.
+    """
+    conn = sqlite3.connect(DATABASE_FILE)
+    cur = conn.cursor()
+    cur.execute("""
+        PRAGMA foreign_keys = ON;
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS sms_appointment (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lead_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            age INTEGER,
+            state TEXT,
+            booking_date TEXT NOT NULL,         -- ISO date string
+            ticket_no TEXT NOT NULL,
+            status BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+        );
+    """)
+    conn.commit()
+    conn.close()
+
+async def save_appointment_to_db_from_lead(lead) -> int:
+    """
+    Insert appointment from a confirmed lead object.
+    Expects: lead.id, lead.full_name, lead.age, lead.state_of_residence, lead.selected_time_slot
+    Sets status=True because booking is confirmed.
+    """
+    if not getattr(lead, "id", None):
+        raise ValueError("Lead object must have an id")
+    if not getattr(lead, "selected_time_slot", None):
+        raise ValueError("Lead does not have a selected_time_slot")
+    if not getattr(lead, "full_name", None):
+        raise ValueError("Lead does not have full_name")
+ 
+    conn = sqlite3.connect(DATABASE_FILE)
+    cur = conn.cursor()
+    created_at = datetime.now().isoformat()
+ 
+    cur.execute("""
+        INSERT INTO sms_appointment (lead_id, name, age, state, booking_date, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        lead.id,
+        getattr(lead, "full_name", None),
+        getattr(lead, "age", None),
+        getattr(lead, "state_of_residence", None),
+        getattr(lead, "selected_time_slot", None),
+        getattr(lead, "ticket_number", None),
+        True,  # confirmed
+        created_at
+    ))
+    conn.commit()
+    appt_id = cur.lastrowid
+    conn.close()
+    return appt_id
+ 
