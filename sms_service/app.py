@@ -24,6 +24,8 @@ from sms_sqlite_utils import (
     SMSLeadQualificationStage
 )
 
+from sms_schemas import SMSLead,SMSChatRequest,SMSChatResponse
+
 app = Flask(__name__)
 
 # Initialize SMS database
