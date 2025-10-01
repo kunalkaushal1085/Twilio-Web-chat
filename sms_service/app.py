@@ -27,12 +27,12 @@ from sms_helper import (
 
 
 # # Load local .env only if present (safe for dev)
-load_dotenv()
+load_dotenv('../.env')
 
 # ╭──────────── Twilio and OpenAI credentials (from Render ENV or .env locally) ────────────╮
 ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-TWILIO_NUMBER = os.getenv("TWILIO_NUMBER")
+TWILIO_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = "gpt-3.5-turbo" 
@@ -400,7 +400,7 @@ async def receive_sms():
             lead.ticket_number = ticket_number
             # Save booking date = today’s date + selected slot
             try:
-                _appt_id = await save_appointment_to_db_from_lead(lead)
+                await save_appointment_to_db_from_lead(lead)
             except Exception as e:
                 print(f"ERROR saving appointment: {e}")
 
