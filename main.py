@@ -35,6 +35,7 @@ security = HTTPBearer()
 
 # --- OpenAI Client Imports ---
 from openai import AsyncOpenAI
+from openai import APIError
 
 # This MUST run BEFORE OpenAI() is called if your key is in .env
 load_dotenv()

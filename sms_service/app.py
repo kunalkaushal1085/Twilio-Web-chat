@@ -405,7 +405,7 @@ async def receive_sms():
                 print(f"ERROR saving appointment: {e}")
 
             bot_message = f"{QUALIFICATION_QUESTIONS[lead.qualification_stage]} Your unique ticket number is **{ticket_number}** and your booking is confirmed for **{lead.selected_time_slot}**. We will contact you at the scheduled time!"
-            
+        #user confermations
         elif "no" in user_confirmation and "yes" not in user_confirmation:
             # Go back to slot selection
             lead.qualification_stage = "ask_time_slot_confirmation"
