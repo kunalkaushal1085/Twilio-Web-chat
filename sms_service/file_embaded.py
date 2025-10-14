@@ -98,7 +98,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 load_dotenv()
 
 EMBED_MODEL = "text-embedding-3-small" 
-DATABASE_FILE = "../leads.db"
+# DATABASE_FILE = "../leads.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+print(">>>>>>>BASE_DIR>>>>>>>")
+DATABASE_FILE = os.path.join(BASE_DIR, "../leads.db")
+DATABASE_FILE = os.path.abspath(DATABASE_FILE)
 SIM_THRESHOLD = 0.80  # Lowered for better matching
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
