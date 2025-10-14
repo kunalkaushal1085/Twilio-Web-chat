@@ -66,7 +66,7 @@ app = FastAPI(title="The Paul Group Web Chatbot API (Lead Qualification + Recrui
 
 # Static folder for serving uploaded images
 origins = [
-    "https://yourfrontend.com",  
+    # "https://yourfrontend.com",  
     "*",  
 ]
 
