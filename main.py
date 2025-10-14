@@ -65,18 +65,18 @@ app = FastAPI(title="The Paul Group Web Chatbot API (Lead Qualification + Recrui
               description="FastAPI web chat API with multi-turn lead qualification for final expense insurance and recruiting detection.")
 
 # Static folder for serving uploaded images
-origins = [
-    # "https://yourfrontend.com",  
-    "*",  
-]
+# origins = [
+#     # "https://yourfrontend.com",  
+#     "*",  
+# ]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,          
-    allow_credentials=True,         
-    allow_methods=["*"],            
-    allow_headers=["*"],           
-)
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=origins,          
+#     allow_credentials=True,         
+#     allow_methods=["*"],            
+#     allow_headers=["*"],           
+# )
 UPLOAD_FOLDER = "media"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.mount("/media", StaticFiles(directory=UPLOAD_FOLDER), name="media")
