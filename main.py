@@ -64,19 +64,6 @@ from sqlite_utils import (
 app = FastAPI(title="The Paul Group Web Chatbot API (Lead Qualification + Recruiting)",
               description="FastAPI web chat API with multi-turn lead qualification for final expense insurance and recruiting detection.")
 
-# Static folder for serving uploaded images
-# origins = [
-#     # "https://yourfrontend.com",  
-#     "*",  
-# ]
-
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=origins,          
-#     allow_credentials=True,         
-#     allow_methods=["*"],            
-#     allow_headers=["*"],           
-# )
 UPLOAD_FOLDER = "media"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.mount("/media", StaticFiles(directory=UPLOAD_FOLDER), name="media")
@@ -169,13 +156,7 @@ async def get_openai_response(chat_history: List[Message], system_prompt: str) -
         })
         
     try:
-        # completion = await client.chat.completions.create(
-        #     model=OPENAI_MODEL,
-        #     messages=messages_for_api,
-        #     temperature=0.7,
-        #     max_tokens=500
-        # )
-        completion = await openai_client.chat.completions.create( # <--- This is correct
+        completion = await openai_client.chat.completions.create( 
             model=OPENAI_MODEL,
             messages=messages_for_api,
             temperature=0.7,
@@ -219,36 +200,57 @@ async def chat_with_bot(chat_request: ChatRequest):
     print(user_message,'usermessage')
 
     lead = await get_lead_from_db(user_id)
-    
+    print(lead,'lead')
     bot_message = ""
     ticket_number = None
     
     # --- Initial Greeting Logic ---
+    # if not lead:
+    #     print("not lead")
+    #     lead = Lead(id=user_id, qualification_stage="initial_chat")
+    #     # Save user's first message in conversation history
+    #     lead.conversation_history.append(Message(sender="user", text=user_message))
+    #     # bot_message = "Hello! I'm Nia from The Paul Group. I'm here to help you with your final expense insurance questions. What would you like to know about our burial insurance coverage?"
+    #     bot_message = ""
+    #     lead.conversation_history.append(Message(sender="bot", text=bot_message))
+    #     lead.last_active_timestamp = datetime.now()
+    #     await save_lead_to_db(lead)
+        
+    #     # UPDATED: Return the initial greeting with the generated user_id
+    #     return ChatResponse(
+    #         bot_message=bot_message,
+    #         lead_status=lead.qualification_stage,
+    #         lead_data=lead.model_dump(exclude_none=True),
+    #         conversation_history=lead.conversation_history,
+    #         user_id=user_id  # Include the generated user_id in response
+    #     )
+    
     if not lead:
-        lead = Lead(id=user_id, qualification_stage="initial_chat")
-        # Save user's first message in conversation history
+        print("not lead")
+        lead = Lead(id=user_id, qualification_stage="ask_name")
         lead.conversation_history.append(Message(sender="user", text=user_message))
-        # bot_message = "Hello! I'm Nia from The Paul Group. I'm here to help you with your final expense insurance questions. What would you like to know about our burial insurance coverage?"
-        bot_message = ""
+
+        # Use the predefined qualification question
+        bot_message = QUALIFICATION_QUESTIONS["ask_name"]
+
         lead.conversation_history.append(Message(sender="bot", text=bot_message))
         lead.last_active_timestamp = datetime.now()
         await save_lead_to_db(lead)
-        
-        # UPDATED: Return the initial greeting with the generated user_id
+
         return ChatResponse(
             bot_message=bot_message,
             lead_status=lead.qualification_stage,
             lead_data=lead.model_dump(exclude_none=True),
             conversation_history=lead.conversation_history,
-            user_id=user_id  # Include the generated user_id in response
+            user_id=user_id
         )
-    
     # If not a new lead, proceed to add user message and process
     lead.last_active_timestamp = datetime.now()
     lead.conversation_history.append(Message(sender="user", text=user_message))
     faq_answer = await answer_from_uploaded_file(user_message, 'leads.db')
 # ____________-___________________________________________
     if faq_answer:
+        print("DEBUG: FAQ answer found from uploaded dataset.")
         lead.conversation_history.append(
             Message(sender="bot", text=faq_answer)
         )
@@ -265,6 +267,7 @@ async def chat_with_bot(chat_request: ChatRequest):
 
     # --- RECRUITING INQUIRY DETECTION ---
     if detect_recruiting_inquiry(user_message):
+        print("DEBUG: Recruiting inquiry detected.")
         print(f"DEBUG: Recruiting inquiry detected from user {user_id}: '{user_message}'")
         
         lead.qualification_stage = "recruiting_inquiry"
@@ -283,6 +286,7 @@ async def chat_with_bot(chat_request: ChatRequest):
     
     # --- HANDLE RECRUITING FOLLOW-UP ---
     if lead.qualification_stage == "recruiting_inquiry":
+        print("DEBUG: Handling recruiting follow-up.")
         licensing_response = handle_licensing_status_response(user_message)
         
         if licensing_response != "Could you clarify if you currently have a life insurance license? This will help me connect you with the right person.":
@@ -303,6 +307,7 @@ async def chat_with_bot(chat_request: ChatRequest):
     
     # --- HANDLE COMPLETED RECRUITING ---
     if lead.qualification_stage == "recruiting_completed":
+        print("DEBUG: Lead has completed recruiting inquiry.")
         bot_message = "Thank you for your interest in joining The Paul Group! A recruiter will reach out to you soon. Is there anything else I can help you with today?"
         lead.conversation_history.append(Message(sender="bot", text=bot_message))
         await save_lead_to_db(lead)
@@ -391,27 +396,33 @@ async def chat_with_bot(chat_request: ChatRequest):
         bot_message = QUALIFICATION_QUESTIONS[lead.qualification_stage]
         
     elif lead.qualification_stage == "ask_health_confirm":
-        user_health_response = user_message.lower()
+        user_health_response = user_message.lower().strip()
+
         if "yes" in user_health_response and "no" not in user_health_response:
+            # User says they DO have health conditions → ask for details
             lead.general_health = "Yes"
-            lead.health_conditions = None
-            lead.qualification_stage = "ask_budget"
-            bot_message = QUALIFICATION_QUESTIONS[lead.qualification_stage]
-        elif "no" in user_health_response and "yes" not in user_health_response:
-            lead.general_health = "No"
             lead.qualification_stage = "ask_health_details"
             bot_message = QUALIFICATION_QUESTIONS[lead.qualification_stage]
+
+        elif "no" in user_health_response and "yes" not in user_health_response:
+            # User says they have NO health conditions → skip to budget
+            lead.general_health = "No"
+            lead.health_conditions = "None"
+            lead.qualification_stage = "ask_budget"
+            bot_message = QUALIFICATION_QUESTIONS[lead.qualification_stage]
+
         else:
             bot_message = "Please answer with 'Yes' or 'No' regarding major health conditions. (e.g., 'Yes', 'No, I have diabetes')"
-            lead.conversation_history.pop() 
+            lead.conversation_history.pop()
             await save_lead_to_db(lead)
             return ChatResponse(
                 bot_message=bot_message,
                 lead_status=lead.qualification_stage,
                 lead_data=lead.model_dump(exclude_none=True),
                 conversation_history=lead.conversation_history,
-                user_id=user_id  # UPDATED: Include user_id
+                user_id=user_id
             )
+
             
     elif lead.qualification_stage == "ask_health_details":
         lead.health_conditions = user_message
