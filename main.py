@@ -629,6 +629,52 @@ def get_current_admin(
         raise HTTPException(status_code=401, detail="Admin not found")
     return admin
 
+
+#Uploded data set to openai
+@app.post("/upload-dataset-file/")
+async def upload_dataset_file(
+    file: UploadFile = File(...),
+    admin: dict = Depends(get_current_admin)
+):
+    """
+    Upload a dataset JSON file to local directory. Multiple files can exist.
+    """
+    try:
+        if not file.filename.lower().endswith(".json"):
+            return {
+                "status": "error",
+                "message": "Invalid file type. Only JSON files are allowed."
+            }
+        os.makedirs(DATASET_DIR, exist_ok=True)
+        # create a unique filename to avoid overwriting
+        unique_filename = f"{int(datetime.now().timestamp())}_{file.filename}"
+        file_path = f"{DATASET_DIR}/{unique_filename}"
+        async with aiofiles.open(file_path, 'wb') as out_file:
+            content = await file.read()
+            await out_file.write(content)
+        return {
+            "status": "success",
+            "filename": unique_filename,
+            "message": f"File {unique_filename} uploaded successfully",
+            "filename": unique_filename
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"An unexpected error occurred: {str(e)}"
+        }
+    
+@app.get("/list-dataset-files/")
+async def list_dataset_files(admin: dict = Depends(get_current_admin)):
+    """
+    List all JSON dataset files in DATASET_DIR
+    """
+    files = []
+    for f in os.listdir(DATASET_DIR):
+        if f.lower().endswith(".json"):
+            files.append(f)
+    return {"status": "success", "files": files}
+
 #same api change the algo and urlname
 @app.post("/upload-dataset-version/")
 async def upload_dataset_version(
