@@ -631,38 +631,111 @@ def get_current_admin(
 
 
 #Uploded data set to openai
+# @app.post("/upload-dataset-file/")
+# async def upload_dataset_file(
+#     file: UploadFile = File(...),
+#     version_label: str = Form(...),
+#     description: str = Form(""),
+#     admin: dict = Depends(get_current_admin)
+# ):
+#     """
+#     Upload a dataset JSON file to local directory. Multiple files can exist.
+#     - If the filename already exists, it will overwrite the previous file.
+#     - If the filename is new, it will save as a new file.
+#     """
+#     try:
+#         if not file.filename.lower().endswith(".json"):
+#             return {
+#                 "status": "error",
+#                 "message": "Invalid file type. Only JSON files are allowed."
+#             }
+        
+#         os.makedirs(DATASET_DIR, exist_ok=True)
+#         file_path = f"{DATASET_DIR}/{file.filename}"
+#         file_exists = os.path.exists(file_path)
+#         # Save file locally
+#         async with aiofiles.open(file_path, 'wb') as out_file:
+#             content = await file.read()
+#             await out_file.write(content)
+#         # Count total records
+#         async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+#             content = await f.read()
+#             try:
+#                 data = json.loads(content)
+#             except json.JSONDecodeError:
+#                 return {"status": "error", "message": "Uploaded file is not a valid JSON."}
+#         total_records = len(data)
+#         # Generate a file_id (could be filename or UUID)
+#         file_id = str(uuid.uuid4())
+#         store_versioned_dataset(
+#             version_label=version_label,
+#             description=description,
+#             file_ids=[file_id],
+#             total_records=total_records,
+#             created_by=admin["email"]
+#         )
+#         return {
+#             "status": "success",
+#             "message": f"File uploaded successfully as {file.filename}",
+#             "filename": file.filename,
+#             "version_label": version_label,
+#             "description": description,
+#             "overwrite": file_exists,
+#             "total_records": total_records
+#         }
+#     except Exception as e:
+#         return {
+#             "status": "error",
+#             "message": f"An unexpected error occurred: {str(e)}"
+#         }
+
 @app.post("/upload-dataset-file/")
 async def upload_dataset_file(
     file: UploadFile = File(...),
+    version_label: str = Form(...),
+    description: str = Form(""),
     admin: dict = Depends(get_current_admin)
 ):
-    """
-    Upload a dataset JSON file to local directory. Multiple files can exist.
-    - If the filename already exists, it will overwrite the previous file.
-    - If the filename is new, it will save as a new file.
-    """
+    """Upload a dataset JSON file to local directory and store version info."""
     try:
         if not file.filename.lower().endswith(".json"):
-            return {
-                "status": "error",
-                "message": "Invalid file type. Only JSON files are allowed."
-            }
+            return {"status": "error", "message": "Invalid file type. Only JSON files are allowed."}
+
+        # Check if version_label already exists
+        versions = get_all_dataset_versions()
+        if any(v["version"] == version_label for v in versions):
+            return {"status": "error", "message": f"Json FileVersion '{version_label}' already exists."}
+
         os.makedirs(DATASET_DIR, exist_ok=True)
+
+        # Save the file locally
         file_path = f"{DATASET_DIR}/{file.filename}"
         async with aiofiles.open(file_path, 'wb') as out_file:
             content = await file.read()
             await out_file.write(content)
+
+        # Generate unique file_id
+        file_id = str(uuid.uuid4())
+
+        # Store version in DB
+        store_versioned_dataset(
+            version_label=version_label,
+            description=description,
+            file_ids=[file_id],
+            total_records=0,  # or count JSON records if needed
+            created_by=admin.get("email")
+        )
+
         return {
             "status": "success",
             "message": f"File uploaded successfully as {file.filename}",
             "filename": file.filename,
-            "overwrite": os.path.exists(file_path)
+            "file_id": file_id
         }
+
     except Exception as e:
-        return {
-            "status": "error",
-            "message": f"An unexpected error occurred: {str(e)}"
-        }
+        return {"status": "error", "message": f"Unexpected error: {str(e)}"}
+
     
 @app.get("/list-dataset-files/")
 async def list_dataset_files(admin: dict = Depends(get_current_admin)):

@@ -523,54 +523,111 @@ def ensure_dataset_versions_table():
     conn.commit()
     conn.close()
 
-def store_versioned_dataset(version_label: str, description: str, file_ids: list, 
-                           total_records: int, created_by: str = None):
-    """Store a versioned dataset and make it active."""
+# def store_versioned_dataset(version_label: str, description: str, file_ids: list, 
+#                            total_records: int, created_by: str = None):
+#     """Store a versioned dataset and make it active. Update if version_label exists."""
+#     ensure_dataset_versions_table()
+#     conn = sqlite3.connect(DATABASE_FILE)
+#     cursor = conn.cursor()
+    
+#     try:
+#         # Deactivate all previous versions
+#         cursor.execute("UPDATE dataset_versions SET is_active = 0")
+        
+#         # Check if version_label already exists
+#         cursor.execute("SELECT id FROM dataset_versions WHERE version_label = ?", (version_label,))
+#         existing = cursor.fetchone()
+        
+#         if existing:
+#             # Update existing record
+#             cursor.execute("""
+#                 UPDATE dataset_versions
+#                 SET description = ?, total_records = ?, upload_timestamp = ?, file_ids = ?, created_by = ?, is_active = 1
+#                 WHERE version_label = ?
+#             """, (
+#                 description,
+#                 total_records,
+#                 datetime.now().isoformat(),
+#                 json.dumps(file_ids),
+#                 created_by,
+#                 version_label
+#             ))
+#         else:
+#             # Insert new version
+#             cursor.execute("""
+#                 INSERT INTO dataset_versions 
+#                 (version_label, description, total_records, upload_timestamp, is_active, file_ids, created_by)
+#                 VALUES (?, ?, ?, ?, 1, ?, ?)
+#             """, (
+#                 version_label, 
+#                 description, 
+#                 total_records,
+#                 datetime.now().isoformat(),
+#                 json.dumps(file_ids),
+#                 created_by
+#             ))
+        
+#         # Insert into uploaded_files table (if needed)
+#         cursor.execute('''
+#             CREATE TABLE IF NOT EXISTS uploaded_files (
+#                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+#                 file_id TEXT,
+#                 chunks_created INTEGER
+#             )
+#         ''')
+        
+#         # Insert each file_id into uploaded_files
+#         for file_id in file_ids:
+#             cursor.execute('''
+#                 INSERT INTO uploaded_files (file_id, chunks_created)
+#                 VALUES (?, ?)
+#             ''', (file_id, len(file_ids)))
+        
+#         conn.commit()
+        
+#     except Exception as e:
+#         conn.rollback()
+#         raise e
+#     finally:
+#         conn.close()
+
+def store_versioned_dataset(version_label, description, file_ids, total_records, created_by=None):
     ensure_dataset_versions_table()
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
-    
     try:
-        # Deactivate all previous versions
+        # Check if version_label already exists
+        cursor.execute("SELECT id FROM dataset_versions WHERE version_label = ?", (version_label,))
+        existing = cursor.fetchone()
+        if existing:
+            conn.close()
+            return {"status": "error", "message": f"Version '{version_label}' already exists."}
+
+        # Deactivate previous versions
         cursor.execute("UPDATE dataset_versions SET is_active = 0")
-        
+
         # Insert new version as active
         cursor.execute("""
             INSERT INTO dataset_versions 
             (version_label, description, total_records, upload_timestamp, is_active, file_ids, created_by)
             VALUES (?, ?, ?, ?, 1, ?, ?)
         """, (
-            version_label, 
-            description, 
+            version_label,
+            description,
             total_records,
             datetime.now().isoformat(),
             json.dumps(file_ids),
             created_by
         ))
-        
-        # Insert into uploaded_files table (in the SAME connection)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS uploaded_files (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_id TEXT,
-                chunks_created INTEGER
-            )
-        ''')
-        
-        # Insert each file_id into uploaded_files
-        for file_id in file_ids:
-            cursor.execute('''
-                INSERT INTO uploaded_files (file_id, chunks_created)
-                VALUES (?, ?)
-            ''', (file_id, len(file_ids)))
-        
         conn.commit()
-        
+        return {"status": "success", "message": f"Version '{version_label}' uploaded successfully."}
     except Exception as e:
         conn.rollback()
-        raise e
+        return {"status": "error", "message": f"Unexpected error: {str(e)}"}
     finally:
         conn.close()
+
+
 
 def get_active_dataset_version():
     """Get currently active dataset version."""
