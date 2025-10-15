@@ -638,6 +638,8 @@ async def upload_dataset_file(
 ):
     """
     Upload a dataset JSON file to local directory. Multiple files can exist.
+    - If the filename already exists, it will overwrite the previous file.
+    - If the filename is new, it will save as a new file.
     """
     try:
         if not file.filename.lower().endswith(".json"):
@@ -646,17 +648,15 @@ async def upload_dataset_file(
                 "message": "Invalid file type. Only JSON files are allowed."
             }
         os.makedirs(DATASET_DIR, exist_ok=True)
-        # create a unique filename to avoid overwriting
-        unique_filename = f"{int(datetime.now().timestamp())}_{file.filename}"
-        file_path = f"{DATASET_DIR}/{unique_filename}"
+        file_path = f"{DATASET_DIR}/{file.filename}"
         async with aiofiles.open(file_path, 'wb') as out_file:
             content = await file.read()
             await out_file.write(content)
         return {
             "status": "success",
-            "filename": unique_filename,
-            "message": f"File {unique_filename} uploaded successfully",
-            "filename": unique_filename
+            "message": f"File uploaded successfully as {file.filename}",
+            "filename": file.filename,
+            "overwrite": os.path.exists(file_path)
         }
     except Exception as e:
         return {
