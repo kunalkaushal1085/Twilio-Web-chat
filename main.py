@@ -737,16 +737,6 @@ async def upload_dataset_file(
         return {"status": "error", "message": f"Unexpected error: {str(e)}"}
 
     
-@app.get("/list-dataset-files/")
-async def list_dataset_files(admin: dict = Depends(get_current_admin)):
-    """
-    List all JSON dataset files in DATASET_DIR
-    """
-    files = []
-    for f in os.listdir(DATASET_DIR):
-        if f.lower().endswith(".json"):
-            files.append(f)
-    return {"status": "success", "files": files}
 
 #same api change the algo and urlname
 @app.post("/upload-dataset-version/")
