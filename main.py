@@ -834,7 +834,7 @@ async def activate_dataset_by_file_id(
             chunk_files = []
 
             # 5️⃣ Split into chunks
-            CHUNK_SIZE = 50  # adjust as needed
+            CHUNK_SIZE = 2000  # adjust as needed
             for i in range(0, len(data), CHUNK_SIZE):
                 chunk = data[i:i + CHUNK_SIZE]
                 chunk_file_path = f"{DATASET_DIR}/{dataset['version']}_chunk_{i//CHUNK_SIZE + 1}.jsonl"
@@ -860,10 +860,7 @@ async def activate_dataset_by_file_id(
                 # ✅ Store OpenAI file info in separate table
                 store_uploaded_file_info(
                     file_id=response.id,
-                    version_label=dataset["version"],
-                    original_file_id=file_id,
-                    uploaded_by=admin["email"],
-                    created_at=datetime.now().isoformat()
+                    chunks_created=1
                 )
 
             # 7️⃣ Clean up temporary chunk files
@@ -876,7 +873,7 @@ async def activate_dataset_by_file_id(
             "status": "success",
             "message": result["message"],
             "active_version": active_version,
-            "total_records": total_records
+            
         }
 
     except Exception as e:
