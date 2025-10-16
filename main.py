@@ -24,7 +24,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from sqlite_utils import (
     ensure_admin_table, get_admin_by_email,
-    create_admin, update_admin_password
+    create_admin, update_admin_password,update_dataset_file_ids
 )
 from auths import (
     hash_password, verify_password,
@@ -57,7 +57,7 @@ from sqlite_utils import (
     get_all_dataset_versions, set_active_dataset_version,_get_latest_file_id,ensure_welcome_table,
     get_welcome_message,
     update_welcome_message,
-    ensure_quicklink_table, get_active_quicklinks, create_quicklink,update_quicklink,ensure_theme_table,delete_quicklink,get_theme_config,update_theme_config,get_all_conversations_from_db,ensure_appointment_table,save_appointment_to_db_from_lead,get_appointments_from_db,get_appointment_by_id
+    ensure_quicklink_table, get_active_quicklinks, create_quicklink,update_quicklink,ensure_theme_table,delete_quicklink,get_theme_config,update_theme_config,get_all_conversations_from_db,ensure_appointment_table,save_appointment_to_db_from_lead,get_appointments_from_db,get_appointment_by_id,set_active_dataset_by_file_id
 )
 
 # Initialize FastAPI app
@@ -630,65 +630,7 @@ def get_current_admin(
     return admin
 
 
-#Uploded data set to openai
-# @app.post("/upload-dataset-file/")
-# async def upload_dataset_file(
-#     file: UploadFile = File(...),
-#     version_label: str = Form(...),
-#     description: str = Form(""),
-#     admin: dict = Depends(get_current_admin)
-# ):
-#     """
-#     Upload a dataset JSON file to local directory. Multiple files can exist.
-#     - If the filename already exists, it will overwrite the previous file.
-#     - If the filename is new, it will save as a new file.
-#     """
-#     try:
-#         if not file.filename.lower().endswith(".json"):
-#             return {
-#                 "status": "error",
-#                 "message": "Invalid file type. Only JSON files are allowed."
-#             }
-        
-#         os.makedirs(DATASET_DIR, exist_ok=True)
-#         file_path = f"{DATASET_DIR}/{file.filename}"
-#         file_exists = os.path.exists(file_path)
-#         # Save file locally
-#         async with aiofiles.open(file_path, 'wb') as out_file:
-#             content = await file.read()
-#             await out_file.write(content)
-#         # Count total records
-#         async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
-#             content = await f.read()
-#             try:
-#                 data = json.loads(content)
-#             except json.JSONDecodeError:
-#                 return {"status": "error", "message": "Uploaded file is not a valid JSON."}
-#         total_records = len(data)
-#         # Generate a file_id (could be filename or UUID)
-#         file_id = str(uuid.uuid4())
-#         store_versioned_dataset(
-#             version_label=version_label,
-#             description=description,
-#             file_ids=[file_id],
-#             total_records=total_records,
-#             created_by=admin["email"]
-#         )
-#         return {
-#             "status": "success",
-#             "message": f"File uploaded successfully as {file.filename}",
-#             "filename": file.filename,
-#             "version_label": version_label,
-#             "description": description,
-#             "overwrite": file_exists,
-#             "total_records": total_records
-#         }
-#     except Exception as e:
-#         return {
-#             "status": "error",
-#             "message": f"An unexpected error occurred: {str(e)}"
-#         }
-
+#Uploded data set to database with versioning
 @app.post("/upload-dataset-file/")
 async def upload_dataset_file(
     file: UploadFile = File(...),
@@ -722,7 +664,8 @@ async def upload_dataset_file(
             version_label=version_label,
             description=description,
             file_ids=[file_id],
-            total_records=0,  # or count JSON records if needed
+            file_paths=[file_path],
+            total_records=0, 
             created_by=admin.get("email")
         )
 
@@ -730,14 +673,14 @@ async def upload_dataset_file(
             "status": "success",
             "message": f"File uploaded successfully as {file.filename}",
             "filename": file.filename,
-            "file_id": file_id
+            "file_id": file_id,
+            "file_path": file_path
         }
 
     except Exception as e:
         return {"status": "error", "message": f"Unexpected error: {str(e)}"}
 
     
-
 #same api change the algo and urlname
 @app.post("/upload-dataset-version/")
 async def upload_dataset_version(
@@ -748,14 +691,14 @@ async def upload_dataset_version(
 ):
     """Upload a versioned dataset with label and description."""
     try:
-        # ✅ Validate file extension (only .json allowed)
+        #Validate file extension (only .json allowed)
         if not file.filename.lower().endswith(".json"):
             return {
                 "status": "error",
                 "message": "Invalid file type. Only JSON files are allowed."
             }
 
-        # ✅ Check if version already exists
+        #Check if version already exists
         versions = get_all_dataset_versions()
         if any(v["version"] == version_label for v in versions):
             return {
@@ -771,7 +714,7 @@ async def upload_dataset_version(
             content = await file.read()
             await out_file.write(content)
 
-        # ✅ Read & validate JSON file
+        #Read & validate JSON file
         try:
             async with aiofiles.open(filepath, "r", encoding="utf-8") as f:
                 content = await f.read()
@@ -786,7 +729,7 @@ async def upload_dataset_version(
         total_records = len(data)
         chunk_files = []
 
-        # ✅ Split into chunks
+        #Split into chunks
         for i in range(0, len(data), CHUNK_SIZE):
             chunk = data[i:i+CHUNK_SIZE]
             chunk_file_path = f"{DATASET_DIR}/{version_label}_chunk_{i//CHUNK_SIZE + 1}.jsonl"
@@ -799,7 +742,7 @@ async def upload_dataset_version(
 
             chunk_files.append(chunk_file_path)
 
-        # ✅ Upload each chunk to OpenAI
+        #Upload each chunk to OpenAI
         uploaded_files = []
         for chunk_path in chunk_files:
             async with aiofiles.open(chunk_path, "rb") as f:
@@ -852,6 +795,97 @@ async def list_dataset_versions():
         "active_version": active_version["version"] if active_version else None,
         "total_versions": len(versions)
     }
+
+
+@app.post("/active_dataset/")
+async def activate_dataset_by_file_id(
+    file_id: str = Form(...),
+    is_active: bool = Form(...),
+    admin: dict = Depends(get_current_admin)
+):
+    """
+    Activate dataset version by file_id and embed its JSON file in chunks,
+    same logic as /upload-dataset-version/. OpenAI file_ids are stored separately.
+    """
+    try:
+        # 1️⃣ Update DB status
+        result = set_active_dataset_by_file_id(file_id, is_active)
+        if result["status"] == "error":
+            raise HTTPException(status_code=404, detail=result["message"])
+
+        if is_active:
+            # 2️⃣ Fetch dataset info dynamically from DB
+            versions = get_all_dataset_versions()
+            dataset = next((v for v in versions if v["file_id"] == file_id), None)
+            if not dataset:
+                return {"status": "error", "message": "Dataset with file_id not found."}
+
+            # 3️⃣ Get file path
+            filepath = dataset.get("file_path")
+            if not filepath or not os.path.exists(filepath):
+                return {"status": "error", "message": f"File not found: {filepath}"}
+
+            # 4️⃣ Read JSON
+            async with aiofiles.open(filepath, "r", encoding="utf-8") as f:
+                content = await f.read()
+                data = json.loads(content)
+
+            total_records = len(data)
+            chunk_files = []
+
+            # 5️⃣ Split into chunks
+            CHUNK_SIZE = 50  # adjust as needed
+            for i in range(0, len(data), CHUNK_SIZE):
+                chunk = data[i:i + CHUNK_SIZE]
+                chunk_file_path = f"{DATASET_DIR}/{dataset['version']}_chunk_{i//CHUNK_SIZE + 1}.jsonl"
+
+                async with aiofiles.open(chunk_file_path, "w", encoding="utf-8") as out:
+                    for record in chunk:
+                        prompt = record.get("user_input", "")
+                        completion = " " + record.get("bot_response", "")
+                        await out.write(json.dumps({"prompt": prompt, "completion": completion}) + "\n")
+
+                chunk_files.append(chunk_file_path)
+
+            # 6️⃣ Upload each chunk to OpenAI and store uploaded file info separately
+            for chunk_path in chunk_files:
+                async with aiofiles.open(chunk_path, "rb") as f:
+                    file_data = await f.read()
+
+                response = await client.files.create(
+                    file=(os.path.basename(chunk_path), file_data),
+                    purpose='fine-tune'  # same as your upload API
+                )
+
+                # ✅ Store OpenAI file info in separate table
+                store_uploaded_file_info(
+                    file_id=response.id,
+                    version_label=dataset["version"],
+                    original_file_id=file_id,
+                    uploaded_by=admin["email"],
+                    created_at=datetime.now().isoformat()
+                )
+
+            # 7️⃣ Clean up temporary chunk files
+            for chunk_path in chunk_files:
+                os.remove(chunk_path)
+
+        # 8️⃣ Return active version info
+        active_version = get_active_dataset_version()
+        return {
+            "status": "success",
+            "message": result["message"],
+            "active_version": active_version,
+            "total_records": total_records
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Unexpected error: {str(e)}"
+        }
+
+
 
 
 @app.post("/switch-dataset-version/")
