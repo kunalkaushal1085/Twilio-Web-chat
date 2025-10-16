@@ -509,8 +509,7 @@ def ensure_dataset_versions_table():
     
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS dataset_versions (
-            id INTEGER PRIMARY KEY AUTOIN
-            CREMENT,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             version_label TEXT UNIQUE NOT NULL,
             description TEXT,
             total_records INTEGER,
