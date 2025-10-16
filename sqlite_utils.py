@@ -509,17 +509,25 @@ def ensure_dataset_versions_table():
     
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS dataset_versions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY AUTOIN
+            CREMENT,
             version_label TEXT UNIQUE NOT NULL,
             description TEXT,
             total_records INTEGER,
             upload_timestamp TEXT NOT NULL,
             is_active BOOLEAN DEFAULT FALSE,
             file_ids TEXT NOT NULL,
-            file_paths TEXT NOT NULL,
             created_by TEXT
         );
     """)
+    # Step 2: Check existing columns
+    cursor.execute("PRAGMA table_info(dataset_versions);")
+    existing_columns = [row[1] for row in cursor.fetchall()]
+
+    # Step 3: Add missing column (file_paths)
+    if "file_paths" not in existing_columns:
+        cursor.execute("ALTER TABLE dataset_versions ADD COLUMN file_paths TEXT;")
+        print("✅ Added 'file_paths' column to dataset_versions table.")
     
     conn.commit()
     conn.close()
