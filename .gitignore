@@ -1,4 +1,3 @@
-.env
 media
 logo
 openenv
@@ -14,3 +13,5 @@ chatbot_training_dataset_tpg_full.json
 backup_previous_working_code
 readme.MD
 ben.py
+config.bat
+node_modules

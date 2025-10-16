@@ -516,6 +516,7 @@ def ensure_dataset_versions_table():
             upload_timestamp TEXT NOT NULL,
             is_active BOOLEAN DEFAULT FALSE,
             file_ids TEXT NOT NULL,
+            file_paths TEXT NOT NULL,
             created_by TEXT
         );
     """)
@@ -591,7 +592,11 @@ def ensure_dataset_versions_table():
 #     finally:
 #         conn.close()
 
-def store_versioned_dataset(version_label, description, file_ids, total_records, created_by=None):
+def store_versioned_dataset(version_label, description, file_ids, file_paths,total_records, created_by=None):
+    """
+    Store a dataset version and save file paths dynamically.
+    file_paths: list of local paths for each file_id
+    """
     ensure_dataset_versions_table()
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
@@ -609,14 +614,15 @@ def store_versioned_dataset(version_label, description, file_ids, total_records,
         # Insert new version as active
         cursor.execute("""
             INSERT INTO dataset_versions 
-            (version_label, description, total_records, upload_timestamp, is_active, file_ids, created_by)
-            VALUES (?, ?, ?, ?, 1, ?, ?)
+            (version_label, description, total_records, upload_timestamp, is_active, file_ids,file_paths, created_by)
+            VALUES (?, ?, ?, ?, 0, ?, ?,?)
         """, (
             version_label,
             description,
             total_records,
             datetime.now().isoformat(),
             json.dumps(file_ids),
+            json.dumps(file_paths),
             created_by
         ))
         conn.commit()
@@ -628,6 +634,18 @@ def store_versioned_dataset(version_label, description, file_ids, total_records,
         conn.close()
 
 
+def update_dataset_file_ids(version_label: str, file_id: str, new_file_ids: list):
+    """Update the dataset file_ids in DB for a given version."""
+    ensure_dataset_versions_table()
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE dataset_versions
+        SET file_ids = ?
+        WHERE version_label = ? AND json_extract(file_ids, '$[0]') = ?
+    """, (json.dumps(new_file_ids), version_label, file_id))
+    conn.commit()
+    conn.close()
 
 def get_active_dataset_version():
     """Get currently active dataset version."""
@@ -660,20 +678,38 @@ def get_all_dataset_versions():
     
     cursor.execute("""
         SELECT version_label, description, total_records, upload_timestamp, 
-               is_active, created_by
+               is_active, created_by, file_ids, file_paths
         FROM dataset_versions 
         ORDER BY upload_timestamp DESC
     """)
     
     versions = []
     for row in cursor.fetchall():
+        # Get first file_id
+        file_id_str = row[6] or "[]" 
+        try:
+            file_ids = json.loads(file_id_str)
+            file_id = file_ids[0] if file_ids else None  
+        except json.JSONDecodeError:
+            file_id = file_id_str
+        
+        # Get first file_path
+        file_paths_str = row[7] or "[]"
+        try:
+            file_paths = json.loads(file_paths_str)
+            file_path = file_paths[0] if file_paths else None
+        except json.JSONDecodeError:
+            file_path = file_paths_str
+
         versions.append({
             "version": row[0],
             "description": row[1] or "",
             "total_records": row[2],
             "upload_timestamp": row[3],
             "is_active": bool(row[4]),
-            "created_by": row[5] or "Unknown"
+            "created_by": row[5] or "Unknown",
+            "file_id": file_id,
+            "file_path": file_path
         })
     
     conn.close()
@@ -697,6 +733,41 @@ def set_active_dataset_version(version_label: str):
     conn.commit()
     conn.close()
     return True
+
+
+
+
+def set_active_dataset_by_file_id(file_id: str, is_active: bool):
+    """
+    Activate or deactivate a dataset version based on file_id.
+    Default is is_active=True (activate).
+    """
+    ensure_dataset_versions_table()
+    
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        cursor = conn.cursor()
+        # Find dataset by file_id
+        cursor.execute(
+            "SELECT id FROM dataset_versions WHERE file_ids LIKE ?", 
+            (f'%"{file_id}"%',)
+        )
+        record = cursor.fetchone()
+        if not record:
+            return {"status": "error", "message": f"No dataset found with file_id '{file_id}'."}
+
+        dataset_id = record[0]
+        if is_active:
+            # Activate this dataset, deactivate others
+            cursor.execute("UPDATE dataset_versions SET is_active = 0")
+            cursor.execute("UPDATE dataset_versions SET is_active = 1 WHERE id = ?", (dataset_id,))
+        else:
+            # Deactivate only this dataset
+            cursor.execute("UPDATE dataset_versions SET is_active = 0 WHERE id = ?", (dataset_id,))
+
+    status_text = "active" if is_active else "inactive"
+    return {"status": "success", "message": f"Dataset version with file_id '{file_id}' is now {status_text}."}
+
+
 
 def _get_latest_file_id() -> Optional[str]:
     """Return file_id from active dataset version, fallback to legacy system."""
