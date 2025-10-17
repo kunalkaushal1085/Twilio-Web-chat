@@ -985,8 +985,11 @@ async def ask_question(req: QuestionRequest):
     try:
         log_message("Received question for retrieval QA...")
 
-        # Load FAISS DB
-        vector_service.load_db()  # <-- correct usage
+        try:
+            vector_service.load_db()
+        except Exception as e:
+            log_message(f"FAISS DB not found or failed to load: {str(e)}", level="error")
+            raise HTTPException(status_code=404, detail="FAISS DB not found. Please activate a dataset first.")
 
         # Create retriever
         retriever = vector_service.vectorstore.as_retriever(search_kwargs={"k": 3})
