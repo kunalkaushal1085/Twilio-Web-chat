@@ -22,6 +22,12 @@ from passlib.context import CryptContext
 from fastapi import Form, Depends, HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
+from langchain_core.documents import Document
+from services.vector_db_service import VectorDBService
+from utils.loggers import log_message
 from sqlite_utils import (
     ensure_admin_table, get_admin_by_email,
     create_admin, update_admin_password,update_dataset_file_ids
@@ -49,7 +55,7 @@ SIM_THRESHOLD = 0.85
 
 # Import schemas and SQLite utilities
 
-from schemas import Lead, Message, ChatRequest, ChatResponse, LeadQualificationStage
+from schemas import Lead, Message, ChatRequest, ChatResponse, LeadQualificationStage,QuestionRequest
 from sqlite_utils import (
     initialize_sqlite_db, get_lead_from_db, save_lead_to_db, get_all_leads_from_db,
     detect_recruiting_inquiry, generate_recruiting_response, handle_licensing_status_response,
@@ -85,6 +91,11 @@ def on_startup():
     ensure_quicklink_table()
     ensure_theme_table()
     ensure_appointment_table()
+
+
+vector_service = VectorDBService()
+
+vector_service.load_db()
 
 # --- LLM Configuration ---
 AGENT_NAME = os.getenv("AGENT_NAME", "The Paul Group AI")
@@ -797,6 +808,94 @@ async def list_dataset_versions():
     }
 
 
+# @app.post("/active_dataset/")
+# async def activate_dataset_by_file_id(
+#     file_id: str = Form(...),
+#     is_active: bool = Form(...),
+#     admin: dict = Depends(get_current_admin)
+# ):
+#     """
+#     Activate dataset version by file_id and embed its JSON file in chunks,
+#     same logic as /upload-dataset-version/. OpenAI file_ids are stored separately.
+#     """
+#     try:
+#         # 1️⃣ Update DB status
+#         result = set_active_dataset_by_file_id(file_id, is_active)
+#         if result["status"] == "error":
+#             raise HTTPException(status_code=404, detail=result["message"])
+
+#         if is_active:
+#             # 2️⃣ Fetch dataset info dynamically from DB
+#             versions = get_all_dataset_versions()
+#             dataset = next((v for v in versions if v["file_id"] == file_id), None)
+#             if not dataset:
+#                 return {"status": "error", "message": "Dataset with file_id not found."}
+
+#             # 3️⃣ Get file path
+#             filepath = dataset.get("file_path")
+#             if not filepath or not os.path.exists(filepath):
+#                 return {"status": "error", "message": f"File not found: {filepath}"}
+
+#             # 4️⃣ Read JSON
+#             async with aiofiles.open(filepath, "r", encoding="utf-8") as f:
+#                 content = await f.read()
+#                 data = json.loads(content)
+
+#             total_records = len(data)
+#             chunk_files = []
+
+#             # 5️⃣ Split into chunks
+#             CHUNK_SIZE = 2000  # adjust as needed
+#             for i in range(0, len(data), CHUNK_SIZE):
+#                 chunk = data[i:i + CHUNK_SIZE]
+#                 chunk_file_path = f"{DATASET_DIR}/{dataset['version']}_chunk_{i//CHUNK_SIZE + 1}.jsonl"
+
+#                 async with aiofiles.open(chunk_file_path, "w", encoding="utf-8") as out:
+#                     for record in chunk:
+#                         prompt = record.get("user_input", "")
+#                         completion = " " + record.get("bot_response", "")
+#                         await out.write(json.dumps({"prompt": prompt, "completion": completion}) + "\n")
+
+#                 chunk_files.append(chunk_file_path)
+
+#             # 6️⃣ Upload each chunk to OpenAI and store uploaded file info separately
+#             for chunk_path in chunk_files:
+#                 async with aiofiles.open(chunk_path, "rb") as f:
+#                     file_data = await f.read()
+
+#                 response = await client.files.create(
+#                     file=(os.path.basename(chunk_path), file_data),
+#                     purpose='fine-tune'  # same as your upload API
+#                 )
+
+#                 # ✅ Store OpenAI file info in separate table
+#                 store_uploaded_file_info(
+#                     file_id=response.id,
+#                     chunks_created=1
+#                 )
+
+#             # 7️⃣ Clean up temporary chunk files
+#             for chunk_path in chunk_files:
+#                 os.remove(chunk_path)
+
+#         # 8️⃣ Return active version info
+#         active_version = get_active_dataset_version()
+#         return {
+#             "status": "success",
+#             "message": result["message"],
+#             "active_version": active_version,
+
+#         }
+
+#     except Exception as e:
+#         return {
+#             "status": "error",
+#             "message": f"Unexpected error: {str(e)}"
+#         }
+
+
+
+
 @app.post("/active_dataset/")
 async def activate_dataset_by_file_id(
     file_id: str = Form(...),
@@ -804,8 +903,8 @@ async def activate_dataset_by_file_id(
     admin: dict = Depends(get_current_admin)
 ):
     """
-    Activate dataset version by file_id and embed its JSON file in chunks,
-    same logic as /upload-dataset-version/. OpenAI file_ids are stored separately.
+    Activate dataset version by file_id, upload chunks to OpenAI for fine-tuning,
+    and store embeddings in OpenAI vector DB for retrieval.
     """
     try:
         # 1️⃣ Update DB status
@@ -825,55 +924,51 @@ async def activate_dataset_by_file_id(
             if not filepath or not os.path.exists(filepath):
                 return {"status": "error", "message": f"File not found: {filepath}"}
 
+            # Ensure DATASET_DIR exists for chunk files
+            os.makedirs(DATASET_DIR, exist_ok=True)
+
             # 4️⃣ Read JSON
             async with aiofiles.open(filepath, "r", encoding="utf-8") as f:
                 content = await f.read()
                 data = json.loads(content)
 
-            total_records = len(data)
-            chunk_files = []
+            # 5️⃣ Convert dataset to LangChain Documents
+            documents = []
+            for record in data:
+                question = record.get("user_input", "").strip()
+                answer = record.get("bot_response", "").strip()
+                if not question and not answer:
+                    continue
 
-            # 5️⃣ Split into chunks
-            CHUNK_SIZE = 2000  # adjust as needed
-            for i in range(0, len(data), CHUNK_SIZE):
-                chunk = data[i:i + CHUNK_SIZE]
-                chunk_file_path = f"{DATASET_DIR}/{dataset['version']}_chunk_{i//CHUNK_SIZE + 1}.jsonl"
-
-                async with aiofiles.open(chunk_file_path, "w", encoding="utf-8") as out:
-                    for record in chunk:
-                        prompt = record.get("user_input", "")
-                        completion = " " + record.get("bot_response", "")
-                        await out.write(json.dumps({"prompt": prompt, "completion": completion}) + "\n")
-
-                chunk_files.append(chunk_file_path)
-
-            # 6️⃣ Upload each chunk to OpenAI and store uploaded file info separately
-            for chunk_path in chunk_files:
-                async with aiofiles.open(chunk_path, "rb") as f:
-                    file_data = await f.read()
-
-                response = await client.files.create(
-                    file=(os.path.basename(chunk_path), file_data),
-                    purpose='fine-tune'  # same as your upload API
+                combined_text = f"Question: {question}\nAnswer: {answer}"
+                documents.append(
+                    Document(
+                        page_content=combined_text,
+                        metadata={"dataset_version": dataset["version"]}
+                    )
                 )
 
-                # ✅ Store OpenAI file info in separate table
-                store_uploaded_file_info(
-                    file_id=response.id,
-                    chunks_created=1
-                )
+            # 6️⃣ Initialize VectorDBService
+            vector_db = VectorDBService()
 
-            # 7️⃣ Clean up temporary chunk files
-            for chunk_path in chunk_files:
-                os.remove(chunk_path)
+            # 7️⃣ Split documents into smaller chunks before saving
+            chunks = vector_db.split_documents(documents)
 
-        # 8️⃣ Return active version info
+            # 8️⃣ Save chunk embeddings to FAISS DB
+            vector_db.save_vector_db(chunks)
+
+            # 9️⃣ Optionally, store upload info
+            store_uploaded_file_info(
+                file_id=file_id,
+                chunks_created=len(chunks)
+            )
+
+        # 🔟 Return current active dataset info
         active_version = get_active_dataset_version()
         return {
             "status": "success",
             "message": result["message"],
             "active_version": active_version,
-            
         }
 
     except Exception as e:
@@ -882,7 +977,54 @@ async def activate_dataset_by_file_id(
             "message": f"Unexpected error: {str(e)}"
         }
 
+            
 
+
+@app.post("/ask-question/")
+async def ask_question(req: QuestionRequest):
+    try:
+        log_message("Received question for retrieval QA...")
+
+        # Load FAISS DB
+        vector_service.load_db()  # <-- correct usage
+
+        # Create retriever
+        retriever = vector_service.vectorstore.as_retriever(search_kwargs={"k": 3})
+
+        # Prompt template
+        PROMPT = PromptTemplate(
+            template="""
+            Use the context to answer the question.
+            
+            Context:
+            {context}
+            
+            Question:
+            {question}
+            
+            Provide a clear and concise answer.
+            """,
+            input_variables=["context", "question"]
+        )
+
+        # LLM
+        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=llm,
+            retriever=retriever,
+            chain_type="stuff",
+            chain_type_kwargs={"prompt": PROMPT}
+        )
+
+        response = qa_chain.run(req.question)
+        log_message(f"Generated answer: {response}")
+
+        return {"question": req.question, "answer": response}
+
+    except Exception as e:
+        log_message(f"Error in ask_question API: {str(e)}", level="error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/switch-dataset-version/")

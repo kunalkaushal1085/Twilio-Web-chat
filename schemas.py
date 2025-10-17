@@ -72,5 +72,8 @@ class FileUploaded(BaseModel):
     chunks_created: int
     uploaded_at: Optional[str] = None
 
+class QuestionRequest(BaseModel):
+    question: str
+
 
     
