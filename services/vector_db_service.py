@@ -78,8 +78,8 @@ class VectorDBService:
 
     def load_db(self):
         """Load existing FAISS vector database."""
-        if not os.path.exists(self.faiss_local_path):
-            raise ValueError("FAISS DB not found locally. Please run ingestion first.")
+        # if not os.path.exists(self.faiss_local_path):
+        #     raise ValueError("FAISS DB not found locally. Please run ingestion first.")
 
         log_message("Loading FAISS vector database...")
         self.vectorstore = FAISS.load_local(
