@@ -76,19 +76,19 @@ class VectorDBService:
         )
         log_message("FAISS database saved successfully.")
 
-    def load_db(self):
-        """Load existing FAISS vector database."""
-        # if not os.path.exists(self.faiss_local_path):
-        #     raise ValueError("FAISS DB not found locally. Please run ingestion first.")
+    # def load_db(self):
+    #     """Load existing FAISS vector database."""
+    #     if not os.path.exists(self.faiss_local_path):
+    #         raise ValueError("FAISS DB not found locally. Please run ingestion first.")
 
-        log_message("Loading FAISS vector database...")
-        self.vectorstore = FAISS.load_local(
-            folder_path=self.faiss_local_path,
-            index_name=self.faiss_local_index,
-            embeddings=self.embeddings,
-            allow_dangerous_deserialization=True
-        )
-        log_message("FAISS DB loaded successfully.")
+    #     log_message("Loading FAISS vector database...")
+    #     self.vectorstore = FAISS.load_local(
+    #         folder_path=self.faiss_local_path,
+    #         index_name=self.faiss_local_index,
+    #         embeddings=self.embeddings,
+    #         allow_dangerous_deserialization=True
+    #     )
+    #     log_message("FAISS DB loaded successfully.")
 
     def search_from_db(self, query: str, k: int = 5):
         """Perform semantic search from local FAISS DB."""

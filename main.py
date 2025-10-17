@@ -95,7 +95,7 @@ def on_startup():
 
 vector_service = VectorDBService()
 
-vector_service.load_db()
+# vector_service.load_db()
 
 # --- LLM Configuration ---
 AGENT_NAME = os.getenv("AGENT_NAME", "The Paul Group AI")
@@ -986,7 +986,8 @@ async def ask_question(req: QuestionRequest):
         log_message("Received question for retrieval QA...")
 
         try:
-            vector_service.load_db()
+            pass
+            # vector_service.load_db()
         except Exception as e:
             log_message(f"FAISS DB not found or failed to load: {str(e)}", level="error")
             raise HTTPException(status_code=404, detail="FAISS DB not found. Please activate a dataset first.")
