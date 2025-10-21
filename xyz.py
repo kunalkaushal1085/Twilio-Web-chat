@@ -14,6 +14,6 @@ import sqlite3
 conn = sqlite3.connect("leads.db")
 cur = conn.cursor()
 
-cur.execute("DROP TABLE IF EXISTS leads")  # Deletes the table if it exists
+cur.execute("DROP TABLE IF EXISTS uploded_files")  # Deletes the table if it exists
 conn.commit()
 conn.close()
