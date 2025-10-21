@@ -205,48 +205,101 @@ async def chat_with_bot(chat_request: ChatRequest):
     """
     # UPDATED: Auto-generate user_id if not provided (for anonymous users)
     user_id = chat_request.user_id or f"anon_{int(datetime.now().timestamp())}_{str(uuid.uuid4())[:8]}"
-    # user_message = chat_request.message.strip()
-    user_message = chat_request.message
-    print(user_message,'usermessage')
+    print(user_id,'--------user_id')
+    user_message = chat_request.message.strip()
+    # user_message = chat_request.message
+    # print(user_message,'usermessage')
 
     lead = await get_lead_from_db(user_id)
-    print(lead,'lead')
+    print(lead,'>>>>>>>>>lead<<<<<<<<<<')
     bot_message = ""
     ticket_number = None
-    
+    greetings = ["hi", "hello", "hey", "good morning", "good evening"]
+    # # if any(word in user_message.lower() for word in greetings):
+    # if user_message.lower().strip() in greetings:
+    #     print("DEBUG: Greeting detected — starting qualification flow.")
     # --- Initial Greeting Logic ---
+    if not lead:
+        print("No existing lead, creating new lead...")
+        lead = Lead(id=user_id, qualification_stage="ask_name")
+        # Save user's first message in conversation history
+        lead.conversation_history.append(Message(sender="user", text=user_message))
+        if user_message.lower().strip() in greetings:
+            bot_message = QUALIFICATION_QUESTIONS["ask_name"]
+        
+        # bot_message = ""
+        # lead.conversation_history.append(Message(sender="bot", text=bot_message))
+        # lead.last_active_timestamp = datetime.now()
+        # await save_lead_to_db(lead)
+        else:
+            # Not greeting → check FAQ first
+            faq_answer = await answer_from_uploaded_file(user_message, 'leads.db')
+            if faq_answer:
+                bot_message = faq_answer
+                # If answer suggests personalized quote → start qualification
+                if "explore options" in bot_message.lower() or "personalized quote" in bot_message.lower():
+                    lead.qualification_stage = "ask_name"
+                    bot_message = QUALIFICATION_QUESTIONS["ask_name"]
+            else:
+                # fallback to OpenAI
+                bot_message = await get_openai_response([Message(sender="user", text=user_message)], GENERAL_CHAT_SYSTEM_PROMPT)
+                if "explore options" in bot_message.lower() or "personalized quote" in bot_message.lower():
+                    lead.qualification_stage = "ask_name"
+                    bot_message = QUALIFICATION_QUESTIONS["ask_name"]
+        lead.conversation_history.append(Message(sender="bot", text=bot_message))
+        lead.last_active_timestamp = datetime.now()
+        await save_lead_to_db(lead)
+        # UPDATED: Return the initial greeting with the generated user_id
+        return ChatResponse(
+            bot_message=bot_message,
+            lead_status=lead.qualification_stage,
+            lead_data=lead.model_dump(exclude_none=True),
+            conversation_history=lead.conversation_history,
+            user_id=user_id  # Include the generated user_id in response
+        )
+    
     # if not lead:
-    #     print("not lead")
-    #     lead = Lead(id=user_id, qualification_stage="initial_chat")
-    #     # Save user's first message in conversation history
+    #     print(">>>>>>>not lead>>>>>>>>")
+    #     lead = Lead(id=user_id, qualification_stage="ask_name")
     #     lead.conversation_history.append(Message(sender="user", text=user_message))
-    #     # bot_message = "Hello! I'm Nia from The Paul Group. I'm here to help you with your final expense insurance questions. What would you like to know about our burial insurance coverage?"
-    #     bot_message = ""
+
+    #     # Use the predefined qualification question
+    #     bot_message = QUALIFICATION_QUESTIONS["ask_name"]
+
     #     lead.conversation_history.append(Message(sender="bot", text=bot_message))
     #     lead.last_active_timestamp = datetime.now()
     #     await save_lead_to_db(lead)
-        
-    #     # UPDATED: Return the initial greeting with the generated user_id
+
     #     return ChatResponse(
     #         bot_message=bot_message,
     #         lead_status=lead.qualification_stage,
     #         lead_data=lead.model_dump(exclude_none=True),
     #         conversation_history=lead.conversation_history,
-    #         user_id=user_id  # Include the generated user_id in response
+    #         user_id=user_id
     #     )
-    
-    if not lead:
-        print("not lead")
-        lead = Lead(id=user_id, qualification_stage="ask_name")
-        lead.conversation_history.append(Message(sender="user", text=user_message))
-
-        # Use the predefined qualification question
-        bot_message = QUALIFICATION_QUESTIONS["ask_name"]
-
+    # If not a new lead, proceed to add user message and process
+    lead.last_active_timestamp = datetime.now()
+    lead.conversation_history.append(Message(sender="user", text=user_message))
+    # faq_answer = await answer_from_uploaded_file(user_message, 'leads.db')
+    faq_answer = await answer_from_uploaded_file(user_message,'leads.db')
+# ____________-___________________________________________
+    # if faq_answer:
+    #     print("DEBUG: FAQ answer found from uploaded dataset.")
+    #     lead.conversation_history.append(
+    #         Message(sender="bot", text=faq_answer)
+    #     )
+    #     await save_lead_to_db(lead)
+    #     return ChatResponse(
+    #         bot_message          = faq_answer,
+    #         lead_status          = lead.qualification_stage, 
+    #         lead_data            = lead.model_dump(exclude_none=True),
+    #         conversation_history = lead.conversation_history,
+    #         user_id              = user_id  
+    #     )
+    if faq_answer:
+        bot_message = faq_answer
         lead.conversation_history.append(Message(sender="bot", text=bot_message))
-        lead.last_active_timestamp = datetime.now()
         await save_lead_to_db(lead)
-
         return ChatResponse(
             bot_message=bot_message,
             lead_status=lead.qualification_stage,
@@ -254,27 +307,6 @@ async def chat_with_bot(chat_request: ChatRequest):
             conversation_history=lead.conversation_history,
             user_id=user_id
         )
-    # If not a new lead, proceed to add user message and process
-    lead.last_active_timestamp = datetime.now()
-    lead.conversation_history.append(Message(sender="user", text=user_message))
-    faq_answer = await answer_from_uploaded_file(user_message, 'leads.db')
-# ____________-___________________________________________
-    if faq_answer:
-        print("DEBUG: FAQ answer found from uploaded dataset.")
-        lead.conversation_history.append(
-            Message(sender="bot", text=faq_answer)
-        )
-        await save_lead_to_db(lead)
-        return ChatResponse(
-            bot_message          = faq_answer,
-            lead_status          = lead.qualification_stage, 
-            lead_data            = lead.model_dump(exclude_none=True),
-            conversation_history = lead.conversation_history,
-            user_id              = user_id  
-        )
-
-
-
     # --- RECRUITING INQUIRY DETECTION ---
     if detect_recruiting_inquiry(user_message):
         print("DEBUG: Recruiting inquiry detected.")
@@ -892,7 +924,107 @@ async def list_dataset_versions():
 #             "message": f"Unexpected error: {str(e)}"
 #         }
 
+# @app.post("/upload-dataset-version/")
+# async def upload_dataset_version(
+#     file: UploadFile = File(...),
+#     version_label: str = Form(...),
+#     description: str = Form(""),
+#     admin: dict = Depends(get_current_admin)  # Requires admin login
+# ):
+#     """Upload a versioned dataset with label and description."""
+#     try:
+#         # ✅ Validate file extension (only .json allowed)
+#         if not file.filename.lower().endswith(".json"):
+#             return {
+#                 "status": "error",
+#                 "message": "Invalid file type. Only JSON files are allowed."
+#             }
 
+#         # ✅ Check if version already exists
+#         versions = get_all_dataset_versions()
+#         if any(v["version"] == version_label for v in versions):
+#             return {
+#                 "status": "error",
+#                 "message": f"Version {version_label} already exists."
+#             }
+
+#         os.makedirs(DATASET_DIR, exist_ok=True)
+
+#         # Save uploaded file temporarily
+#         filepath = f"{DATASET_DIR}/{file.filename}"
+#         async with aiofiles.open(filepath, 'wb') as out_file:
+#             content = await file.read()
+#             await out_file.write(content)
+
+#         # ✅ Read & validate JSON file
+#         try:
+#             async with aiofiles.open(filepath, "r", encoding="utf-8") as f:
+#                 content = await f.read()
+#                 data = json.loads(content)
+#         except json.JSONDecodeError:
+#             os.remove(filepath)  # cleanup
+#             return {
+#                 "status": "error",
+#                 "message": "Uploaded file is not a valid JSON."
+#             }
+
+#         total_records = len(data)
+#         chunk_files = []
+
+#         # ✅ Split into chunks
+#         for i in range(0, len(data), CHUNK_SIZE):
+#             chunk = data[i:i+CHUNK_SIZE]
+#             chunk_file_path = f"{DATASET_DIR}/{version_label}_chunk_{i//CHUNK_SIZE + 1}.jsonl"
+
+#             async with aiofiles.open(chunk_file_path, "w", encoding="utf-8") as out:
+#                 for record in chunk:
+#                     prompt = record.get("user_input", "")
+#                     completion = " " + record.get("bot_response", "")
+#                     await out.write(json.dumps({"prompt": prompt, "completion": completion}) + "\n")
+
+#             chunk_files.append(chunk_file_path)
+
+#         # ✅ Upload each chunk to OpenAI
+#         uploaded_files = []
+#         for chunk_path in chunk_files:
+#             async with aiofiles.open(chunk_path, "rb") as f:
+#                 file_data = await f.read()
+
+#             response = await client.files.create(
+#                 file=(os.path.basename(chunk_path), file_data),
+#                 purpose='fine-tune'
+#             )
+#             uploaded_files.append(response.id)
+
+#         # ✅ Store versioned dataset
+#         store_versioned_dataset(
+#             version_label=version_label,
+#             description=description,
+#             file_ids=uploaded_files,
+#             total_records=total_records,
+#             created_by=admin["email"]
+#         )
+
+#         # ✅ Clean up temp files
+#         for chunk_path in chunk_files:
+#             os.remove(chunk_path)
+#         os.remove(filepath)
+
+#         return {
+#             "status": "success",
+#             "version": version_label,
+#             "description": description,
+#             "total_records": total_records,
+#             "uploaded_files": uploaded_files,
+#             "chunks_created": len(chunk_files),
+#             "message": f"Dataset version {version_label} uploaded and activated"
+#         }
+
+#     except Exception as e:
+#         return {
+#             "status": "error",
+#             "message": f"An unexpected error occurred: {str(e)}"
+#         }
 
 
 @app.post("/active_dataset/")
@@ -946,21 +1078,56 @@ async def activate_dataset_by_file_id(
                         metadata={"dataset_version": dataset["version"]}
                     )
                 )
+            
+            total_records = len(data)
+            chunk_files = []
 
-            # 6️⃣ Initialize VectorDBService
-            vector_db = VectorDBService()
+            # 5️⃣ Split into chunks
+            CHUNK_SIZE = 2000  # adjust as needed
+            for i in range(0, len(data), CHUNK_SIZE):
+                chunk = data[i:i + CHUNK_SIZE]
+                chunk_file_path = f"{DATASET_DIR}/{dataset['version']}_chunk_{i//CHUNK_SIZE + 1}.jsonl"
 
-            # 7️⃣ Split documents into smaller chunks before saving
-            chunks = vector_db.split_documents(documents)
+                async with aiofiles.open(chunk_file_path, "w", encoding="utf-8") as out:
+                    for record in chunk:
+                        prompt = record.get("user_input", "")
+                        completion = " " + record.get("bot_response", "")
+                        await out.write(json.dumps({"prompt": prompt, "completion": completion}) + "\n")
 
-            # 8️⃣ Save chunk embeddings to FAISS DB
-            vector_db.save_vector_db(chunks)
+                chunk_files.append(chunk_file_path)
 
-            # 9️⃣ Optionally, store upload info
-            store_uploaded_file_info(
-                file_id=file_id,
-                chunks_created=len(chunks)
-            )
+            # 6️⃣ Upload each chunk to OpenAI and store uploaded file info separately
+            for chunk_path in chunk_files:
+                async with aiofiles.open(chunk_path, "rb") as f:
+                    file_data = await f.read()
+
+                response = await client.files.create(
+                    file=(os.path.basename(chunk_path), file_data),
+                    purpose='fine-tune'  # same as your upload API
+                )
+
+                print('response--->>', response.id)
+
+                # ✅ Store OpenAI file info in separate table
+                store_uploaded_file_info(
+                    file_id=response.id,
+                    chunks_created=1
+                )
+
+            # # 6️⃣ Initialize VectorDBService
+            # vector_db = VectorDBService()
+
+            # # 7️⃣ Split documents into smaller chunks before saving
+            # chunks = vector_db.split_documents(documents)
+
+            # # 8️⃣ Save chunk embeddings to FAISS DB
+            # vector_db.save_vector_db(chunks)
+
+            # # 9️⃣ Optionally, store upload info
+            # store_uploaded_file_info(
+            #     file_id=file_id,
+            #     chunks_created=len(chunks)
+            # )
 
         # 🔟 Return current active dataset info
         active_version = get_active_dataset_version()
