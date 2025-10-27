@@ -654,14 +654,38 @@ def update_dataset_file_ids(version_label: str, file_id: str, new_file_ids: list
     conn.commit()
     conn.close()
 
+# def get_active_dataset_version():
+#     """Get currently active dataset version."""
+#     ensure_dataset_versions_table()
+#     conn = sqlite3.connect(DATABASE_FILE)
+#     cursor = conn.cursor()
+    
+#     cursor.execute("""
+#         SELECT version_label, file_ids, total_records 
+#         FROM dataset_versions 
+#         WHERE is_active = 1 
+#         LIMIT 1
+#     """)
+#     row = cursor.fetchone()
+#     conn.close()
+    
+#     if row:
+#         return {
+#             "version": row[0],
+#             "file_ids": json.loads(row[1]),
+#             "file_paths": json.loads(row[2]) if row[2] else [],
+#             "total_records": row[2]
+#         }
+#     return None
+
 def get_active_dataset_version():
-    """Get currently active dataset version."""
+    """Get currently active dataset version (with file paths)."""
     ensure_dataset_versions_table()
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
     
     cursor.execute("""
-        SELECT version_label, file_ids, total_records 
+        SELECT version_label, file_ids, file_paths, total_records 
         FROM dataset_versions 
         WHERE is_active = 1 
         LIMIT 1
@@ -669,13 +693,25 @@ def get_active_dataset_version():
     row = cursor.fetchone()
     conn.close()
     
-    if row:
-        return {
-            "version": row[0],
-            "file_ids": json.loads(row[1]),
-            "total_records": row[2]
-        }
-    return None
+    if not row:
+        return None
+
+    # ✅ Safe JSON parsing
+    def safe_json_load(value):
+        if not value:
+            return []
+        try:
+            return json.loads(value)
+        except Exception:
+            return [value] if isinstance(value, str) else []
+
+    return {
+        "version": row[0],
+        "file_ids": safe_json_load(row[1]),
+        "file_paths": safe_json_load(row[2]),
+        "total_records": row[3]
+    }
+
 
 def get_all_dataset_versions():
     """List all dataset versions."""

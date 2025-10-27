@@ -1152,7 +1152,65 @@ async def activate_dataset_by_file_id(
             "message": f"Unexpected error: {str(e)}"
         }
 
-            
+
+@app.post("/ask_from_active_dataset/")
+async def ask_from_active_dataset(question: str = Form(...)):
+    """
+    Ask a question from the active dataset (based on stored file_paths).
+    """
+    try:
+        active_dataset = get_active_dataset_version()
+        if not active_dataset:
+            return {"status": "error", "message": "No active dataset found."}
+
+        print(active_dataset, "active_dataset")
+
+        file_paths = active_dataset.get("file_paths", [])
+        if not file_paths:
+            return {"status": "error", "message": "No valid file paths found in active dataset."}
+
+        all_data = []
+
+        # ✅ Load dataset file(s)
+        for path in file_paths:
+            if not os.path.exists(path):
+                return {"status": "error", "message": f"File not found: {path}"}
+
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                all_data.extend(data)
+
+        if not all_data:
+            return {"status": "error", "message": "Dataset file is empty."}
+
+        # ✅ Simple text match
+        best_match = None
+        best_score = 0
+
+        for record in all_data:
+            q = record.get("user_input", "").lower()
+            a = record.get("bot_response", "")
+            if not q or not a:
+                continue
+
+            score = sum(word in q for word in question.lower().split())
+            if score > best_score:
+                best_score = score
+                best_match = a
+
+        if not best_match:
+            best_match = "Sorry, I couldn’t find an exact answer in the dataset."
+
+        return {
+            "status": "success",
+            "question": question,
+            "answer": best_match,
+            "active_version": active_dataset["version"],
+            "file_paths": active_dataset["file_paths"]
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 @app.post("/ask-question/")
