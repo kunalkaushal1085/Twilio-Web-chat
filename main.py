@@ -533,7 +533,13 @@ async def chat_with_bot(chat_request: ChatRequest):
         if "yes" in user_confirmation and "no" not in user_confirmation:
             lead.qualification_stage = "completed_qualification"
             
-            ticket_number = str(uuid.uuid4())[:8].upper()
+            # ticket_number = str(uuid.uuid4())[:8].upper()
+            webhook_response = await send_lead_to_webhook(lead)
+            if webhook_response and "lead_id" in webhook_response:
+                print("inside webhook response>>>>>>>>",webhook_response)
+                ticket_number = webhook_response["lead_id"]
+            else:
+                ticket_number = str(uuid.uuid4())[:8].upper()
             lead.ticket_number = ticket_number
             # Save booking date = today’s date + selected slot
             try:
@@ -576,6 +582,7 @@ async def chat_with_bot(chat_request: ChatRequest):
     
     await save_lead_to_db(lead)
     if lead.qualification_stage in ["ask_name", "ask_age", "ask_contact_time", "ask_state", "confirm_booking"]:
+        print('inside lead.qualification_stage')
         await send_lead_to_webhook(lead)
     # UPDATED: Always return user_id in the response
     return ChatResponse(

@@ -11,6 +11,7 @@ from flask_sqlalchemy import SQLAlchemy
 from twilio.rest import Client
 from openai import AsyncOpenAI, APIError
 from twilio.twiml.messaging_response import MessagingResponse
+from webhook.webhook_utils import send_lead_to_webhook
 from dotenv import load_dotenv
 
 from file_embaded import answer_from_uploaded_file
@@ -404,7 +405,14 @@ async def receive_sms():
         if "yes" in user_confirmation and "no" not in user_confirmation:
             lead.qualification_stage = "completed_qualification"
             
-            ticket_number = str(uuid.uuid4())[:8].upper()
+            # ticket_number = str(uuid.uuid4())[:8].upper()
+            # lead.ticket_number = ticket_number
+            webhook_response = await send_lead_to_webhook(lead)
+            if webhook_response and "lead_id" in webhook_response:
+                print("inside webhook response>>>>>>>>",webhook_response)
+                ticket_number = webhook_response["lead_id"]
+            else:
+                ticket_number = str(uuid.uuid4())[:8].upper()
             lead.ticket_number = ticket_number
             # Save booking date = today’s date + selected slot
             try:
@@ -423,6 +431,9 @@ async def receive_sms():
             bot_message = "Please confirm with 'Yes' to book this time slot, or 'No' to choose a different time."
             lead.conversation_history.pop()
             await save_lead_to_db(lead)
+            if lead.qualification_stage in ["ask_name", "ask_age", "ask_contact_time", "ask_state", "confirm_booking"]:
+                print('inside lead.qualification_stage')
+                await send_lead_to_webhook(lead)
             return send_reply_to_user(bot_message)
             # return ChatResponse(
             #     bot_message=bot_message,

@@ -3,52 +3,54 @@ from datetime import datetime
 from schemas import Lead  
 
 async def send_lead_to_webhook(lead: Lead):
-    """
-    Sends selected lead data to the external CRM webhook.
-    Triggered only for certain qualification stages.
-    """
+    print("inside webhook")
+
     webhook_url = "https://www.thepaulgroup.biz/crm/new_api_to_create_and_assign_leads.php"
 
     if not lead:
         print("⚠️ No lead provided to webhook.")
         return
-    full_name = getattr(lead,'full_name',"")
-    first_name = last_name = None
-    if full_name:
-        name_parts = full_name.strip().split()
-        first_name = name_parts[0]
-        last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
-    # Prepare payload safely
+
+    full_name = getattr(lead, 'full_name', "").strip()
+
+    # Split first and last name
+    if " " in full_name:
+        name_parts = full_name.split(" ", 1)
+        owner_first_name, owner_last_name = name_parts[0], name_parts[1]
+    else:
+        owner_first_name, owner_last_name = full_name, "Unknown"  # ensure not empty
+
+    # ✅ Match Postman payload keys
     payload = {
-        "full_name": full_name,
-        "first_name": first_name,
-        "last_name": last_name,
-        "age": getattr(lead, "age", None),
-        "state": getattr(lead, "state_of_residence", None),
-        "budget_range": getattr(lead, "budget_range", None),
-        "best_contact_time": getattr(lead, "best_contact_time", None),
-        "selected_time_slot": getattr(lead, "selected_time_slot", None),
-        "ticket_number": getattr(lead, "ticket_number", None),
-        "qualification_stage": getattr(lead, "qualification_stage", None),
-        "user_id": getattr(lead, "id", None),
-        "timestamp": datetime.utcnow().isoformat()
+        'OwnerFirstName': owner_first_name,
+        'OwnerLastName': owner_last_name,
+        'phone': getattr(lead, "phone", ""),
+        'age': str(getattr(lead, "age", "")),
+        'ask_state': getattr(lead, "state_of_residence", ""),  # match Postman key
+        'user_id': str(getattr(lead, "id", "")),
     }
 
-    # Remove None fields
-    payload = {k: v for k, v in payload.items() if v is not None}
+    # Remove None or empty keys
+    payload = {k: v for k, v in payload.items() if v}
+
+    print("📤 Payload Sent:", payload)
 
     try:
+        # ✅ send as multipart/form-data like Postman
         async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(webhook_url, json=payload)
+            response = await client.post(webhook_url, data=payload)
+            print("Content-Type:", response.request.headers.get("Content-Type"))
             print(f"✅ Webhook sent successfully — {response.status_code}")
-            print(f"🔹 Response: {response.text[:300]}")  # log short response
+            print(f"🔹 Response: {response.text[:300]}")
 
-            # Try reading JSON safely
             try:
                 response_data = response.json()
                 print("🟢 Webhook JSON Response:", response_data)
+                return response_data
             except Exception:
                 print("⚠️ Response is not JSON:", response.text)
+                return None
 
     except Exception as e:
         print(f"❌ Error sending webhook: {e}")
+        return None

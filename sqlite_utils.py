@@ -1092,7 +1092,7 @@ def ensure_appointment_table():
             age INTEGER,
             state TEXT,
             booking_date TEXT NOT NULL,         -- ISO date string
-            ticket_no TEXT NOT NULL,
+            ticket_number TEXT NOT NULL,
             status BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TEXT NOT NULL,
             FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
@@ -1120,7 +1120,7 @@ def save_appointment_to_db_from_lead(lead) -> int:
     created_at = datetime.now().isoformat()
  
     cur.execute("""
-        INSERT INTO appointment (lead_id, name, age, state, booking_date, ticket_no, status, created_at)
+        INSERT INTO appointment (lead_id, name, age, state, booking_date, ticket_number, status, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         lead.id,
