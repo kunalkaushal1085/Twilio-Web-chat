@@ -11,7 +11,7 @@ from flask_sqlalchemy import SQLAlchemy
 from twilio.rest import Client
 from openai import AsyncOpenAI, APIError
 from twilio.twiml.messaging_response import MessagingResponse
-from webhook.webhook_utils import send_lead_to_webhook
+from webhook.webhook_utils import send_lead_to_webhook,send_chat_summary_to_webhook
 from dotenv import load_dotenv
 
 from file_embaded import answer_from_uploaded_file
@@ -411,6 +411,8 @@ async def receive_sms():
             if webhook_response and "lead_id" in webhook_response:
                 print("inside webhook response>>>>>>>>",webhook_response)
                 ticket_number = webhook_response["lead_id"]
+                lead.ticket_number = ticket_number
+                await send_chat_summary_to_webhook(ticket_number,lead.conversation_history)
             else:
                 ticket_number = str(uuid.uuid4())[:8].upper()
             lead.ticket_number = ticket_number

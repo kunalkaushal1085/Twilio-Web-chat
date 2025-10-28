@@ -28,7 +28,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.documents import Document
 from services.vector_db_service import VectorDBService
 from utils.loggers import log_message
-from webhook.webhook_utils import send_lead_to_webhook
+from webhook.webhook_utils import send_lead_to_webhook,send_chat_summary_to_webhook
 from sqlite_utils import (
     ensure_admin_table, get_admin_by_email,
     create_admin, update_admin_password,update_dataset_file_ids
@@ -538,6 +538,8 @@ async def chat_with_bot(chat_request: ChatRequest):
             if webhook_response and "lead_id" in webhook_response:
                 print("inside webhook response>>>>>>>>",webhook_response)
                 ticket_number = webhook_response["lead_id"]
+                lead.ticket_number = ticket_number
+                await send_chat_summary_to_webhook(ticket_number,lead.conversation_history)
             else:
                 ticket_number = str(uuid.uuid4())[:8].upper()
             lead.ticket_number = ticket_number
