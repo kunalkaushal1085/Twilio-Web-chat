@@ -71,8 +71,8 @@ async def send_chat_summary_to_webhook(lead_id:str , conversation_history:list):
         [f"{msg.sender.upper()}: {msg.text}" for msg in conversation_history]
     )
     payload = {
-        "lead_id": lead_id,
-        "conversation_summary": formatted_history
+        "id": lead_id,
+        "text_summary": formatted_history
     }
     print("📤 Sending chat summary payload:", json.dumps(payload, indent=2))
     try:
