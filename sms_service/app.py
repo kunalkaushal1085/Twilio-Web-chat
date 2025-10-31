@@ -28,7 +28,7 @@ from sms_helper import (
 )
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, '..'))
-print(">>>>>BASE_DIR>>>>>>>",PROJECT_ROOT)
+
 env_path = os.path.join(PROJECT_ROOT, '.env')
 load_dotenv(env_path)
 
