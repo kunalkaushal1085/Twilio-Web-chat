@@ -11,9 +11,11 @@ from flask_sqlalchemy import SQLAlchemy
 from twilio.rest import Client
 from openai import AsyncOpenAI, APIError
 from twilio.twiml.messaging_response import MessagingResponse
-from webhook.webhook_utils import send_lead_to_webhook,send_chat_summary_to_webhook
 from dotenv import load_dotenv
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from webhook_data.webhook_utils import send_lead_to_webhook,send_chat_summary_to_webhook
 from file_embaded import answer_from_uploaded_file
 from sms_schemas import SMSLead, SMSMessageSchema
 from sms_sqlite_utils import (
