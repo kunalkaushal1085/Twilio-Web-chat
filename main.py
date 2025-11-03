@@ -28,7 +28,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.documents import Document
 from services.vector_db_service import VectorDBService
 from utils.loggers import log_message
-from webhook.webhook_utils import send_lead_to_webhook,send_chat_summary_to_webhook
+from webhook_data.webhook_utils import send_lead_to_webhook,send_chat_summary_to_webhook
 from sqlite_utils import (
     ensure_admin_table, get_admin_by_email,
     create_admin, update_admin_password,update_dataset_file_ids
