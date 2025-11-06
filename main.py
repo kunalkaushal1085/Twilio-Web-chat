@@ -1214,7 +1214,8 @@ async def ask_from_active_dataset(question: str = Form(...)):
                 best_match = a
 
         if not best_match:
-            best_match = "Sorry, I couldn’t find an exact answer in the dataset."
+            # best_match = "Sorry, I couldn’t find an exact answer in the dataset."
+            best_match = "Sorry, The Paul Group AI couldn’t find an exact answer to your question."
 
         return {
             "status": "success",
