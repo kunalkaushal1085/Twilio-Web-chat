@@ -705,6 +705,7 @@ async def upload_dataset_file(
 
         # Save the file locally
         file_path = f"{DATASET_DIR}/{file.filename}"
+        
         async with aiofiles.open(file_path, 'wb') as out_file:
             content = await file.read()
             await out_file.write(content)
@@ -758,8 +759,10 @@ async def upload_dataset_version(
                 "status": "error",
                 "message": f"Version {version_label} already exists."
             }
+            
 
         os.makedirs(DATASET_DIR, exist_ok=True)
+        print(f"Saving file into directory: {DATASET_DIR}")
 
         # Save uploaded file temporarily
         filepath = f"{DATASET_DIR}/{file.filename}"
@@ -772,7 +775,9 @@ async def upload_dataset_version(
             async with aiofiles.open(filepath, "r", encoding="utf-8") as f:
                 content = await f.read()
                 data = json.loads(content)
+                print('read fie data-----<<>>>')
         except json.JSONDecodeError:
+            print('inside exception--->>>>')
             os.remove(filepath)  # cleanup
             return {
                 "status": "error",
@@ -781,11 +786,15 @@ async def upload_dataset_version(
 
         total_records = len(data)
         chunk_files = []
+        
+        print('total record:',total_records)
 
         #Split into chunks
         for i in range(0, len(data), CHUNK_SIZE):
             chunk = data[i:i+CHUNK_SIZE]
             chunk_file_path = f"{DATASET_DIR}/{version_label}_chunk_{i//CHUNK_SIZE + 1}.jsonl"
+            
+            print('chunk_file_path--->>',chunk_file_path)
 
             async with aiofiles.open(chunk_file_path, "w", encoding="utf-8") as out:
                 for record in chunk:
@@ -794,10 +803,13 @@ async def upload_dataset_version(
                     await out.write(json.dumps({"prompt": prompt, "completion": completion}) + "\n")
 
             chunk_files.append(chunk_file_path)
+        print('chunk files--->>>', chunk_files)
 
         #Upload each chunk to OpenAI
         uploaded_files = []
         for chunk_path in chunk_files:
+            
+            print('chunk pth--->>', chunk_path)
             async with aiofiles.open(chunk_path, "rb") as f:
                 file_data = await f.read()
 
@@ -812,6 +824,7 @@ async def upload_dataset_version(
             version_label=version_label,
             description=description,
             file_ids=uploaded_files,
+            file_paths=[filepath],
             total_records=total_records,
             created_by=admin["email"]
         )
@@ -819,7 +832,7 @@ async def upload_dataset_version(
         # ✅ Clean up temp files
         for chunk_path in chunk_files:
             os.remove(chunk_path)
-        os.remove(filepath)
+        # os.remove(filepath)
 
         return {
             "status": "success",
@@ -1325,6 +1338,7 @@ def login_admin(
     password: str = Form(...)
 ):
     admin = get_admin_by_email(email)
+    print("admin---",admin)
     if not admin or not verify_password(password, admin["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
