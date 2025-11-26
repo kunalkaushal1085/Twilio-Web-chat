@@ -654,30 +654,8 @@ def update_dataset_file_ids(version_label: str, file_id: str, new_file_ids: list
     conn.commit()
     conn.close()
 
-# def get_active_dataset_version():
-#     """Get currently active dataset version."""
-#     ensure_dataset_versions_table()
-#     conn = sqlite3.connect(DATABASE_FILE)
-#     cursor = conn.cursor()
-    
-#     cursor.execute("""
-#         SELECT version_label, file_ids, total_records 
-#         FROM dataset_versions 
-#         WHERE is_active = 1 
-#         LIMIT 1
-#     """)
-#     row = cursor.fetchone()
-#     conn.close()
-    
-#     if row:
-#         return {
-#             "version": row[0],
-#             "file_ids": json.loads(row[1]),
-#             "file_paths": json.loads(row[2]) if row[2] else [],
-#             "total_records": row[2]
-#         }
-#     return None
 
+#=============Get Active Dataset version==================
 def get_active_dataset_version():
     """Get currently active dataset version (with file paths)."""
     ensure_dataset_versions_table()
@@ -712,7 +690,7 @@ def get_active_dataset_version():
         "total_records": row[3]
     }
 
-
+#=============List All Dataset Versions==================
 def get_all_dataset_versions():
     """List all dataset versions."""
     ensure_dataset_versions_table()
@@ -758,6 +736,8 @@ def get_all_dataset_versions():
     conn.close()
     return versions
 
+
+#=============Set Active Dataset Version==================
 def set_active_dataset_version(version_label: str):
     """Switch active dataset version."""
     conn = sqlite3.connect(DATABASE_FILE)
@@ -778,8 +758,7 @@ def set_active_dataset_version(version_label: str):
     return True
 
 
-
-
+#=============Set Active Dataset by File ID==================
 def set_active_dataset_by_file_id(file_id: str, is_active: bool):
     """
     Activate or deactivate a dataset version based on file_id.
@@ -832,6 +811,8 @@ def _get_latest_file_id() -> Optional[str]:
     conn.close()
     return row[0] if row else None
 
+
+#=============Admin User Management==================
 def ensure_admin_table() -> None:
     """
     Creates the admin table if it doesn’t exist.
@@ -852,6 +833,7 @@ def ensure_admin_table() -> None:
     conn.commit()
     conn.close()
 
+#=============Get Admin by Email==================
 def get_admin_by_email(email: str) -> Optional[dict]:
     conn = sqlite3.connect(DATABASE_FILE)
     cur  = conn.cursor()
@@ -863,6 +845,7 @@ def get_admin_by_email(email: str) -> Optional[dict]:
     return None
 
 
+#=============Create Admin User==================
 def create_admin(email: str, hashed_pw: str) -> dict:
     ensure_admin_table()
     conn = sqlite3.connect(DATABASE_FILE)
@@ -877,6 +860,7 @@ def create_admin(email: str, hashed_pw: str) -> dict:
     return {"id": admin_id, "email": email.lower()}
 
 
+#=============Update Admin Password==================
 def update_admin_password(admin_id: int, hashed_pw: str) -> None:
     conn = sqlite3.connect(DATABASE_FILE)
     cur  = conn.cursor()
@@ -931,7 +915,7 @@ def ensure_quicklink_table():
     conn.commit()
     conn.close()
  
- 
+ #============ Quick Links Management ==================
 def get_active_quicklinks() -> list[dict]:
     ensure_quicklink_table()
     conn = sqlite3.connect(DATABASE_FILE)
@@ -941,7 +925,8 @@ def get_active_quicklinks() -> list[dict]:
     conn.close()
     return [{"id": row[0], "title": row[1], "description": row[2]} for row in rows]
  
- 
+
+ #============ Create, Update, Delete Quick Links ==================
 def create_quicklink(title: str, description: str) -> dict:
     ensure_quicklink_table()
     conn = sqlite3.connect(DATABASE_FILE)
@@ -978,7 +963,7 @@ def delete_quicklink(link_id: int) -> bool:
     conn.close()
     return success
 
- 
+ #============ Theme Configuration Management ==================
 def ensure_theme_table():
     conn = sqlite3.connect(DATABASE_FILE)
     cur = conn.cursor()
@@ -1006,7 +991,7 @@ def ensure_theme_table():
     conn.close()
  
 
-
+#============ Get and Update Theme Configuration ==================
 def get_theme_config() -> dict:
     ensure_theme_table()
     conn = sqlite3.connect(DATABASE_FILE)
@@ -1089,7 +1074,7 @@ def update_theme_config(data: dict) -> None:
     conn.close()
 
 
-
+#============ Get All Conversations from Leads ==================
 async def get_all_conversations_from_db() -> List[Dict[str, List[Message]]]:
     """
     Retrieves only the conversations from all leads.
@@ -1109,7 +1094,7 @@ async def get_all_conversations_from_db() -> List[Dict[str, List[Message]]]:
     return conversations
 
 
-#Appointment Booking
+#============ Appointment Management ==================
 def ensure_appointment_table():
     """
     Ensures the appointment table exists with a foreign key referencing leads.id,
@@ -1137,7 +1122,7 @@ def ensure_appointment_table():
     conn.commit()
     conn.close()
 
-
+#============ Save Appointment from Lead ==================
 def save_appointment_to_db_from_lead(lead) -> int:
     """
     Insert appointment from a confirmed lead object.
@@ -1174,6 +1159,7 @@ def save_appointment_to_db_from_lead(lead) -> int:
     return appt_id
  
  
+ #============ Get Appointments from DB ==================
 def get_appointments_from_db(lead_id: Optional[str] = None) -> List[dict]:
     conn = sqlite3.connect(DATABASE_FILE)
     conn.row_factory = sqlite3.Row
@@ -1187,7 +1173,7 @@ def get_appointments_from_db(lead_id: Optional[str] = None) -> List[dict]:
     return [dict(r) for r in rows]
  
  
-
+#============ Get Appointment by ID ==================
 def get_appointment_by_id(appt_id: int) -> Optional[dict]:
     conn = sqlite3.connect(DATABASE_FILE)
     conn.row_factory = sqlite3.Row
