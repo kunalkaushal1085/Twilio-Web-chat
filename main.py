@@ -1338,14 +1338,15 @@ def login_admin(
     email: str = Form(...),
     password: str = Form(...)
 ):
-    admin = get_admin_by_email(email)
-    print("admin---",admin)
-    if not admin or not verify_password(password, admin["password"]):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    # token,expire  = create_access_token({"sub": admin["email"]})
-    token,expire = create_access_token({"sub": admin["email"]}, minutes=120)
-    return {"access_token": token, "token_type": "bearer","expires_at": expire.isoformat(), "message": "Admin login successfully"}
+    try:
+        admin = get_admin_by_email(email)
+        print("admin---",admin)
+        if not admin or not verify_password(password, admin["password"]):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        token,expire = create_access_token({"sub": admin["email"]}, minutes=120)
+        return {"access_token": token, "token_type": "bearer","expires_at": expire.isoformat(), "message": "Admin login successfully"}
+    except Exception as e:
+        return {"status":"failed","message":str(e)}
 
 
 @app.post("/update-password")
