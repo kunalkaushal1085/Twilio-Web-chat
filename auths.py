@@ -28,14 +28,21 @@ def verify_password(plain: str, hashed: str) -> bool:
     return _pwd.verify(plain, hashed)
 
 # ────────────────  JWT helpers  ───────────────
-def create_access_token(data: dict, *, minutes: int = ACCESS_TOKEN_EXPIRE_MINUTES) -> str:
-    """
-    Return a signed JWT containing `data` plus an `exp` claim.
-    `minutes` overrides the default lifetime when needed.
-    """
+# def create_access_token(data: dict, *, minutes: int = ACCESS_TOKEN_EXPIRE_MINUTES) -> str:
+#     """
+#     Return a signed JWT containing `data` plus an `exp` claim.
+#     `minutes` overrides the default lifetime when needed.
+#     """
+#     to_encode = data.copy()
+#     to_encode["exp"] = datetime.utcnow() + timedelta(minutes=minutes)
+#     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def create_access_token(data: dict, *, minutes: int = ACCESS_TOKEN_EXPIRE_MINUTES):
+    expire = datetime.utcnow() + timedelta(minutes=minutes)
     to_encode = data.copy()
-    to_encode["exp"] = datetime.utcnow() + timedelta(minutes=minutes)
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    to_encode["exp"] = expire
+    token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return token, expire
 
 def decode_token(token: str) -> dict | None:
     """

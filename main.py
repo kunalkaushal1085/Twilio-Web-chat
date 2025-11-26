@@ -1343,9 +1343,9 @@ def login_admin(
     if not admin or not verify_password(password, admin["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token = create_access_token({"sub": admin["email"]})
-    token = create_access_token({"sub": admin["email"]}, minutes=120)
-    return {"access_token": token, "token_type": "bearer", "message": "Admin login successfully"}
+    # token,expire  = create_access_token({"sub": admin["email"]})
+    token,expire = create_access_token({"sub": admin["email"]}, minutes=120)
+    return {"access_token": token, "token_type": "bearer","expires_at": expire.isoformat(), "message": "Admin login successfully"}
 
 
 @app.post("/update-password")
