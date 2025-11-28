@@ -37,6 +37,7 @@ from auths import (
     hash_password, verify_password,
     create_access_token, decode_token
 )
+from assistance import create_assistance,ask_assistance, extract_user_name
 
 security = HTTPBearer()
 
@@ -234,6 +235,7 @@ async def chat_with_bot(chat_request: ChatRequest):
         lead.conversation_history.append(Message(sender="user", text=user_message))
 
         if user_message.lower().strip() in greetings:
+            lead.qualification_stage = "ask_name"
             bot_message = QUALIFICATION_QUESTIONS["ask_name"]
         else:
             ai_response = ask_assistance(assistant_id, user_message)
@@ -242,11 +244,13 @@ async def chat_with_bot(chat_request: ChatRequest):
             if send_ai_response:
                 bot_message = ai_response
             else:
+                lead.qualification_stage = "ask_name"
+                bot_message = QUALIFICATION_QUESTIONS["ask_name"]
                 # fallback to OpenAI
-                bot_message = await get_openai_response([Message(sender="user", text=user_message)], GENERAL_CHAT_SYSTEM_PROMPT)
-                if "explore options" in bot_message.lower() or "personalized quote" in bot_message.lower():
-                    lead.qualification_stage = "ask_name"
-                    bot_message = QUALIFICATION_QUESTIONS["ask_name"]
+                # bot_message = await get_openai_response([Message(sender="user", text=user_message)], GENERAL_CHAT_SYSTEM_PROMPT)
+                # if "explore options" in bot_message.lower() or "personalized quote" in bot_message.lower():
+                #     lead.qualification_stage = "ask_name"
+                #     bot_message = QUALIFICATION_QUESTIONS["ask_name"]
 
 
             # Not greeting → check FAQ first
@@ -356,33 +360,30 @@ async def chat_with_bot(chat_request: ChatRequest):
 
     # --- INSURANCE LEAD QUALIFICATION STATE MACHINE LOGIC ---
     if lead.qualification_stage == "initial_chat":
-        if any(keyword in user_message.lower() for keyword in ["satisfied", "quote", "details", "yes", "start", "proceed", "sure"]):
-            lead.qualification_stage = "ask_name"
-            bot_message = QUALIFICATION_QUESTIONS[lead.qualification_stage]
-            #previous working code else conditions
+        print('🚨=======Going in IFfff======🚨')
+        lead.qualification_stage = "ask_name"
+        bot_message = QUALIFICATION_QUESTIONS[lead.qualification_stage]
+        # if any(keyword in user_message.lower() for keyword in ["satisfied", "quote", "details", "yes", "start", "proceed", "sure"]):
+        #     lead.qualification_stage = "ask_name"
+        #     bot_message = QUALIFICATION_QUESTIONS[lead.qualification_stage]
         # else:
         #     bot_message = await get_openai_response(lead.conversation_history, GENERAL_CHAT_SYSTEM_PROMPT)
+            
+        #     # Check if we should transition to qualification
         #     if "explore options" in bot_message.lower() or "personalized quote" in bot_message.lower():
         #         lead.qualification_stage = "ask_name"
         #         bot_message = QUALIFICATION_QUESTIONS[lead.qualification_stage]
-        else:
-            # NEW: Try to get answer from uploaded dataset first
-            # dataset_answer = await answer_from_uploaded_file(user_message)
-            # if dataset_answer:
-            #     bot_message = dataset_answer.strip()
-            # else:
-            # Fallback to OpenAI if no dataset match found
-            bot_message = await get_openai_response(lead.conversation_history, GENERAL_CHAT_SYSTEM_PROMPT)
-            
-            # Check if we should transition to qualification
-            if "explore options" in bot_message.lower() or "personalized quote" in bot_message.lower():
-                lead.qualification_stage = "ask_name"
-                bot_message = QUALIFICATION_QUESTIONS[lead.qualification_stage]
+
     elif lead.qualification_stage == "ask_name":
+        print(user_message,'====Before==')
+        user_message = extract_user_name(user_message)
+        print(user_message,'====After==')
         if len(user_message.strip()) < 2 or any(char.isdigit() for char in user_message):
+            print("====GOing in If")
             bot_message = "Please provide your full name. We need it to personalize your quote. For example, 'John Doe'. (Names should not contain numbers or be too short.)"
             lead.conversation_history.pop()
         else:
+            print("====GOing in else")
             lead.full_name = user_message
             lead.qualification_stage = "ask_age"
             user_display_name = lead.full_name.split()[0] if lead.full_name else "there"
@@ -560,7 +561,8 @@ async def chat_with_bot(chat_request: ChatRequest):
             )
         
     elif lead.qualification_stage == "completed_qualification":
-        bot_message = "You're welcome! We appreciate you providing your details. Our agent will be in touch shortly. Is there anything else I can help you with regarding final expense insurance today?"
+        bot_message = "Sorry, The Paul Group AI couldn’t find an exact answer to your question. You can also call our office directly at +1-888-438-8050 and we’ll help right away.Go ahead and visit our career page here: https://www.thepaulgroup.biz/career-2/."
+        # bot_message = "You're welcome! We appreciate you providing your details. Our agent will be in touch shortly. Is there anything else I can help you with regarding final expense insurance today?"
 
     # Add the bot's response to the conversation history
     if "Please provide your full name." not in bot_message and \
@@ -573,6 +575,7 @@ async def chat_with_bot(chat_request: ChatRequest):
        "Please confirm with 'Yes'" not in bot_message:
         lead.conversation_history.append(Message(sender="bot", text=bot_message))
     
+    print('\n',lead,'\n')
     await save_lead_to_db(lead)
     if lead.qualification_stage in ["ask_name", "ask_age", "ask_contact_time", "ask_state", "confirm_booking"]:
         print('inside lead.qualification_stage')
@@ -1173,7 +1176,6 @@ async def list_dataset_versions():
 #         }
 
 
-from assistance import create_assistance,ask_assistance
 #now latest active dataset api
 @app.post("/active_dataset/")
 async def activate_dataset_by_file_id(
@@ -1244,7 +1246,7 @@ async def ask_from_active_dataset(question: str = Form(...)):
 
         if not best_match:
             # best_match = "Sorry, I couldn’t find an exact answer in the dataset."
-            resp = "Sorry, The Paul Group AI couldn’t find an exact answer to your question. You can also call our office directly at +1-888-438-8050and we’ll help right away.Go ahead and visit our career page here: https://www.thepaulgroup.biz/career-2/."
+            resp = "Sorry, The Paul Group AI couldn’t find an exact answer to your question. You can also call our office directly at +1-888-438-8050 and we’ll help right away.Go ahead and visit our career page here: https://www.thepaulgroup.biz/career-2/."
 
         return {
             "status": "success",

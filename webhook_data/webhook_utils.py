@@ -5,11 +5,11 @@ import json
 import os
 
 async def send_lead_to_webhook(lead: Lead):
-    print("inside webhook")
+    print("inside webhook", lead)
 
     webhook_url = "https://www.thepaulgroup.biz/crm/new_api_to_create_and_assign_leads.php"
 
-    if not lead:
+    if not lead or not lead.full_name:
         print("⚠️ No lead provided to webhook.")
         return
 
