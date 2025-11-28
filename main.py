@@ -64,7 +64,7 @@ from sqlite_utils import (
     get_all_dataset_versions, set_active_dataset_version,_get_latest_file_id,ensure_welcome_table,
     get_welcome_message,
     update_welcome_message,
-    ensure_quicklink_table, get_active_quicklinks, create_quicklink,update_quicklink,ensure_theme_table,delete_quicklink,get_theme_config,update_theme_config,get_all_conversations_from_db,ensure_appointment_table,save_appointment_to_db_from_lead,get_appointments_from_db,get_appointment_by_id,set_active_dataset_by_file_id
+    ensure_quicklink_table, get_active_quicklinks, create_quicklink,update_quicklink,ensure_theme_table,delete_quicklink,get_theme_config,update_theme_config,get_all_conversations_from_db,ensure_appointment_table,save_appointment_to_db_from_lead,get_appointments_from_db,get_appointment_by_id,set_active_dataset_by_file_id,get_file_id_uploded,update_file_id_uploaded
 )
 
 # Initialize FastAPI app
@@ -92,6 +92,7 @@ def on_startup():
     ensure_quicklink_table()
     ensure_theme_table()
     ensure_appointment_table()
+
 
 
 vector_service = VectorDBService()
@@ -167,11 +168,11 @@ async def get_openai_response(chat_history: List[Message], system_prompt: str) -
         })
         
     try:
-        completion = await openai_client.chat.completions.create( 
+        completion = openai_client.chat.completions.create( 
             model=OPENAI_MODEL,
             messages=messages_for_api,
             temperature=0.7,
-            max_tokens=500
+            max_tokens=2000
         )
         text = completion.choices[0].message.content
         print(f"DEBUG: Received response from OpenAI: '{text[:100]}...'")
@@ -219,34 +220,50 @@ async def chat_with_bot(chat_request: ChatRequest):
     # # if any(word in user_message.lower() for word in greetings):
     # if user_message.lower().strip() in greetings:
     #     print("DEBUG: Greeting detected — starting qualification flow.")
+
+    active_dataset = get_active_dataset_version()
+    file_id =active_dataset.get("file_ids", [])
+    print(file_id[0],"==ssss=====")
+    _, assistant_id = get_file_id_uploded(file_id[0])
+
     # --- Initial Greeting Logic ---
     if not lead:
         print("No existing lead, creating new lead...")
-        lead = Lead(id=user_id, qualification_stage="ask_name")
+        lead = Lead(id=user_id, qualification_stage="initial_chat")
         # Save user's first message in conversation history
         lead.conversation_history.append(Message(sender="user", text=user_message))
+
         if user_message.lower().strip() in greetings:
             bot_message = QUALIFICATION_QUESTIONS["ask_name"]
-        
-        # bot_message = ""
-        # lead.conversation_history.append(Message(sender="bot", text=bot_message))
-        # lead.last_active_timestamp = datetime.now()
-        # await save_lead_to_db(lead)
         else:
-            # Not greeting → check FAQ first
-            faq_answer = await answer_from_uploaded_file(user_message, 'leads.db')
-            if faq_answer:
-                bot_message = faq_answer
-                # If answer suggests personalized quote → start qualification
-                if "explore options" in bot_message.lower() or "personalized quote" in bot_message.lower():
-                    lead.qualification_stage = "ask_name"
-                    bot_message = QUALIFICATION_QUESTIONS["ask_name"]
+            ai_response = ask_assistance(assistant_id, user_message)
+            send_ai_response = False if "I don’t know." in ai_response else True
+
+            if send_ai_response:
+                bot_message = ai_response
             else:
                 # fallback to OpenAI
                 bot_message = await get_openai_response([Message(sender="user", text=user_message)], GENERAL_CHAT_SYSTEM_PROMPT)
                 if "explore options" in bot_message.lower() or "personalized quote" in bot_message.lower():
                     lead.qualification_stage = "ask_name"
                     bot_message = QUALIFICATION_QUESTIONS["ask_name"]
+
+
+            # Not greeting → check FAQ first
+            # faq_answer = await answer_from_uploaded_file(user_message, 'leads.db')
+            # if faq_answer:
+            #     bot_message = faq_answer
+            #     # If answer suggests personalized quote → start qualification
+            #     if "explore options" in bot_message.lower() or "personalized quote" in bot_message.lower():
+            #         lead.qualification_stage = "ask_name"
+            #         bot_message = QUALIFICATION_QUESTIONS["ask_name"]
+            # else:
+            #     # fallback to OpenAI
+            #     bot_message = await get_openai_response([Message(sender="user", text=user_message)], GENERAL_CHAT_SYSTEM_PROMPT)
+            #     if "explore options" in bot_message.lower() or "personalized quote" in bot_message.lower():
+            #         lead.qualification_stage = "ask_name"
+            #         bot_message = QUALIFICATION_QUESTIONS["ask_name"]
+        
         lead.conversation_history.append(Message(sender="bot", text=bot_message))
         lead.last_active_timestamp = datetime.now()
         await save_lead_to_db(lead)
@@ -258,47 +275,20 @@ async def chat_with_bot(chat_request: ChatRequest):
             conversation_history=lead.conversation_history,
             user_id=user_id  # Include the generated user_id in response
         )
-    
-    # if not lead:
-    #     print(">>>>>>>not lead>>>>>>>>")
-    #     lead = Lead(id=user_id, qualification_stage="ask_name")
-    #     lead.conversation_history.append(Message(sender="user", text=user_message))
-
-    #     # Use the predefined qualification question
-    #     bot_message = QUALIFICATION_QUESTIONS["ask_name"]
-
-    #     lead.conversation_history.append(Message(sender="bot", text=bot_message))
-    #     lead.last_active_timestamp = datetime.now()
-    #     await save_lead_to_db(lead)
-
-    #     return ChatResponse(
-    #         bot_message=bot_message,
-    #         lead_status=lead.qualification_stage,
-    #         lead_data=lead.model_dump(exclude_none=True),
-    #         conversation_history=lead.conversation_history,
-    #         user_id=user_id
-    #     )
+   
     # If not a new lead, proceed to add user message and process
     lead.last_active_timestamp = datetime.now()
     lead.conversation_history.append(Message(sender="user", text=user_message))
     # faq_answer = await answer_from_uploaded_file(user_message, 'leads.db')
-    faq_answer = await answer_from_uploaded_file(user_message,'leads.db')
+    # faq_answer = await answer_from_uploaded_file(user_message,'leads.db')
+
+    ai_response = ask_assistance(assistant_id, user_message)
+    print(ai_response,'====')
+    send_ai_response = False if "I don’t know." in ai_response else True
 # ____________-___________________________________________
-    # if faq_answer:
-    #     print("DEBUG: FAQ answer found from uploaded dataset.")
-    #     lead.conversation_history.append(
-    #         Message(sender="bot", text=faq_answer)
-    #     )
-    #     await save_lead_to_db(lead)
-    #     return ChatResponse(
-    #         bot_message          = faq_answer,
-    #         lead_status          = lead.qualification_stage, 
-    #         lead_data            = lead.model_dump(exclude_none=True),
-    #         conversation_history = lead.conversation_history,
-    #         user_id              = user_id  
-    #     )
-    if faq_answer:
-        bot_message = faq_answer
+
+    if send_ai_response:
+        bot_message = ai_response
         lead.conversation_history.append(Message(sender="bot", text=bot_message))
         await save_lead_to_db(lead)
         return ChatResponse(
@@ -308,6 +298,7 @@ async def chat_with_bot(chat_request: ChatRequest):
             conversation_history=lead.conversation_history,
             user_id=user_id
         )
+    
     # --- RECRUITING INQUIRY DETECTION ---
     if detect_recruiting_inquiry(user_message):
         print("DEBUG: Recruiting inquiry detected.")
@@ -376,12 +367,12 @@ async def chat_with_bot(chat_request: ChatRequest):
         #         bot_message = QUALIFICATION_QUESTIONS[lead.qualification_stage]
         else:
             # NEW: Try to get answer from uploaded dataset first
-            dataset_answer = await answer_from_uploaded_file(user_message)
-            if dataset_answer:
-                bot_message = dataset_answer.strip()
-            else:
-                # Fallback to OpenAI if no dataset match found
-                bot_message = await get_openai_response(lead.conversation_history, GENERAL_CHAT_SYSTEM_PROMPT)
+            # dataset_answer = await answer_from_uploaded_file(user_message)
+            # if dataset_answer:
+            #     bot_message = dataset_answer.strip()
+            # else:
+            # Fallback to OpenAI if no dataset match found
+            bot_message = await get_openai_response(lead.conversation_history, GENERAL_CHAT_SYSTEM_PROMPT)
             
             # Check if we should transition to qualification
             if "explore options" in bot_message.lower() or "personalized quote" in bot_message.lower():
@@ -736,119 +727,189 @@ async def upload_dataset_file(
 
     
 #same api change the algo and urlname
+# @app.post("/upload-dataset-version/")
+# async def upload_dataset_version(
+#     file: UploadFile = File(...),
+#     version_label: str = Form(...),
+#     description: str = Form(""),
+#     admin: dict = Depends(get_current_admin)  # Requires admin login
+# ):
+#     """Upload a versioned dataset with label and description."""
+#     try:
+#         #Validate file extension (only .json allowed)
+#         if not file.filename.lower().endswith(".json"):
+#             return {
+#                 "status": "error",
+#                 "message": "Invalid file type. Only JSON files are allowed."
+#             }
+
+#         #Check if version already exists
+#         versions = get_all_dataset_versions()
+#         if any(v["version"] == version_label for v in versions):
+#             return {
+#                 "status": "error",
+#                 "message": f"Version {version_label} already exists."
+#             }
+            
+
+#         os.makedirs(DATASET_DIR, exist_ok=True)
+#         print(f"Saving file into directory: {DATASET_DIR}")
+
+#         # Save uploaded file temporarily
+#         filepath = f"{DATASET_DIR}/{file.filename}"
+#         async with aiofiles.open(filepath, 'wb') as out_file:
+#             content = await file.read()
+#             await out_file.write(content)
+
+#         #Read & validate JSON file
+#         try:
+#             async with aiofiles.open(filepath, "r", encoding="utf-8") as f:
+#                 content = await f.read()
+#                 data = json.loads(content)
+#                 print('read fie data-----<<>>>')
+#         except json.JSONDecodeError:
+#             print('inside exception--->>>>')
+#             os.remove(filepath)  # cleanup
+#             return {
+#                 "status": "error",
+#                 "message": "Uploaded file is not a valid JSON."
+#             }
+
+#         total_records = len(data)
+#         chunk_files = []
+        
+#         print('total record:',total_records)
+
+#         #Split into chunks
+#         for i in range(0, len(data), CHUNK_SIZE):
+#             chunk = data[i:i+CHUNK_SIZE]
+#             chunk_file_path = f"{DATASET_DIR}/{version_label}_chunk_{i//CHUNK_SIZE + 1}.jsonl"
+            
+#             print('chunk_file_path--->>',chunk_file_path)
+
+#             async with aiofiles.open(chunk_file_path, "w", encoding="utf-8") as out:
+#                 for record in chunk:
+#                     prompt = record.get("user_input", "")
+#                     completion = " " + record.get("bot_response", "")
+#                     await out.write(json.dumps({"prompt": prompt, "completion": completion}) + "\n")
+
+#             chunk_files.append(chunk_file_path)
+#         print('chunk files--->>>', chunk_files)
+
+#         #Upload each chunk to OpenAI
+#         uploaded_files = []
+#         for chunk_path in chunk_files:
+            
+#             print('chunk pth--->>', chunk_path)
+#             async with aiofiles.open(chunk_path, "rb") as f:
+#                 file_data = await f.read()
+
+#             response = await client.files.create(
+#                 file=(os.path.basename(chunk_path), file_data),
+#                 purpose='fine-tune'
+#             )
+#             uploaded_files.append(response.id)
+
+#         # ✅ Store versioned dataset
+#         store_versioned_dataset(
+#             version_label=version_label,
+#             description=description,
+#             file_ids=uploaded_files,
+#             file_paths=[filepath],
+#             total_records=total_records,
+#             created_by=admin["email"]
+#         )
+
+#         # ✅ Clean up temp files
+#         for chunk_path in chunk_files:
+#             os.remove(chunk_path)
+#         # os.remove(filepath)
+
+#         return {
+#             "status": "success",
+#             "version": version_label,
+#             "description": description,
+#             "total_records": total_records,
+#             "uploaded_files": uploaded_files,
+#             "chunks_created": len(chunk_files),
+#             "message": f"Dataset version {version_label} uploaded and activated"
+#         }
+
+#     except Exception as e:
+#         return {
+#             "status": "error",
+#             "message": f"An unexpected error occurred: {str(e)}"
+#         }
+
+# Live this api use
 @app.post("/upload-dataset-version/")
 async def upload_dataset_version(
     file: UploadFile = File(...),
     version_label: str = Form(...),
     description: str = Form(""),
-    admin: dict = Depends(get_current_admin)  # Requires admin login
+    admin: dict = Depends(get_current_admin)
 ):
-    """Upload a versioned dataset with label and description."""
     try:
-        #Validate file extension (only .json allowed)
-        if not file.filename.lower().endswith(".json"):
-            return {
-                "status": "error",
-                "message": "Invalid file type. Only JSON files are allowed."
-            }
 
-        #Check if version already exists
+        # 1️⃣ Validate file type
+        if not file.filename.lower().endswith(".json"):
+            return {"status": "error", "message": "Only JSON files allowed."}
+
+        # 2️⃣ Check if version already exists in DB
         versions = get_all_dataset_versions()
         if any(v["version"] == version_label for v in versions):
             return {
                 "status": "error",
                 "message": f"Version {version_label} already exists."
             }
-            
-
+        file_id = str(uuid.uuid4())
+        # 3️⃣ Save uploaded file to local storage
         os.makedirs(DATASET_DIR, exist_ok=True)
-        print(f"Saving file into directory: {DATASET_DIR}")
+        file_path = f"{DATASET_DIR}/{version_label}.json"
 
-        # Save uploaded file temporarily
-        filepath = f"{DATASET_DIR}/{file.filename}"
-        async with aiofiles.open(filepath, 'wb') as out_file:
-            content = await file.read()
-            await out_file.write(content)
+        async with aiofiles.open(file_path, 'wb') as out:
+            await out.write(await file.read())
 
-        #Read & validate JSON file
-        try:
-            async with aiofiles.open(filepath, "r", encoding="utf-8") as f:
-                content = await f.read()
-                data = json.loads(content)
-                print('read fie data-----<<>>>')
-        except json.JSONDecodeError:
-            print('inside exception--->>>>')
-            os.remove(filepath)  # cleanup
-            return {
-                "status": "error",
-                "message": "Uploaded file is not a valid JSON."
-            }
+        # 4️⃣ Validate JSON
+        async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+            data = json.loads(await f.read())
 
         total_records = len(data)
-        chunk_files = []
-        
-        print('total record:',total_records)
-
-        #Split into chunks
-        for i in range(0, len(data), CHUNK_SIZE):
-            chunk = data[i:i+CHUNK_SIZE]
-            chunk_file_path = f"{DATASET_DIR}/{version_label}_chunk_{i//CHUNK_SIZE + 1}.jsonl"
-            
-            print('chunk_file_path--->>',chunk_file_path)
-
-            async with aiofiles.open(chunk_file_path, "w", encoding="utf-8") as out:
-                for record in chunk:
-                    prompt = record.get("user_input", "")
-                    completion = " " + record.get("bot_response", "")
-                    await out.write(json.dumps({"prompt": prompt, "completion": completion}) + "\n")
-
-            chunk_files.append(chunk_file_path)
-        print('chunk files--->>>', chunk_files)
-
-        #Upload each chunk to OpenAI
-        uploaded_files = []
-        for chunk_path in chunk_files:
-            
-            print('chunk pth--->>', chunk_path)
-            async with aiofiles.open(chunk_path, "rb") as f:
-                file_data = await f.read()
-
-            response = await client.files.create(
-                file=(os.path.basename(chunk_path), file_data),
-                purpose='fine-tune'
+        with open(file_path, "rb") as f:
+            uploaded = await client.files.create(
+                file=(os.path.basename(file_path), f.read()),
+                purpose="assistants"
             )
-            uploaded_files.append(response.id)
 
-        # ✅ Store versioned dataset
+        openai_file_id = uploaded.id
+        print("✔ Uploaded to OpenAI:", openai_file_id)
+        # 5️⃣ Save ONLY METADATA to database (NO OpenAI upload)
         store_versioned_dataset(
             version_label=version_label,
             description=description,
-            file_ids=uploaded_files,
-            file_paths=[filepath],
+            file_ids=[file_id],              # <-- no OpenAI upload here
+            file_paths=[file_path],
             total_records=total_records,
             created_by=admin["email"]
         )
-
-        # ✅ Clean up temp files
-        for chunk_path in chunk_files:
-            os.remove(chunk_path)
-        # os.remove(filepath)
-
+        # Save file mapping locally
+        store_uploaded_file_info(
+            file_id=file_id,
+            openai_file_id=openai_file_id
+        )
         return {
             "status": "success",
+            "message": f"Dataset version {version_label} saved and uploaded to OpenAI",
             "version": version_label,
-            "description": description,
-            "total_records": total_records,
-            "uploaded_files": uploaded_files,
-            "chunks_created": len(chunk_files),
-            "message": f"Dataset version {version_label} uploaded and activated"
+            "file_id": file_id,
+            "openai_file_id": openai_file_id,
+            "file_path": file_path,
+            "total_records": total_records
         }
 
     except Exception as e:
-        return {
-            "status": "error",
-            "message": f"An unexpected error occurred: {str(e)}"
-        }
+        return {"status": "error", "message": str(e)}
+
 
 @app.get("/dataset-versions/")
 async def list_dataset_versions():
@@ -1051,121 +1112,110 @@ async def list_dataset_versions():
 #         }
 
 
+
+# @app.post("/active_dataset/")
+# async def activate_dataset_by_file_id(
+#     file_id: str = Form(...),
+#     is_active: bool = Form(...),
+#     admin: dict = Depends(get_current_admin)
+# ):
+#     try:
+#         # 1️⃣ Update DB Status
+#         result = set_active_dataset_by_file_id(file_id, is_active)
+#         if result["status"] == "error":
+#             raise HTTPException(status_code=404, detail=result["message"])
+
+#         if is_active:
+
+#             # 2️⃣ Get dataset record
+#             versions = get_all_dataset_versions()
+#             print(versions,'versions')
+#             # dataset = next((v for v in versions if v["file_id"] == file_id), None)
+#             dataset = next(
+#                 (v for v in versions if str(v["file_id"]) == str(file_id)),
+#                 None
+#             )
+#             print(dataset,'=======dataset===')
+#             if not dataset:
+#                 return {"status": "error", "message": "Dataset not found"}
+
+#             filepath = dataset["file_path"]
+#             if not os.path.exists(filepath):
+#                 return {"status": "error", "message": f"File not found: {filepath}"}
+
+#             # 3️⃣ Upload RAW FILE to OpenAI for training
+#             with open(filepath, "rb") as f:
+#                 uploaded = await client.files.create(
+#                     file=(os.path.basename(filepath), f.read()),
+#                     purpose="assistants"   # 🟢 CORRECT purpose
+#                 )
+#             print('====uploaded',uploaded)
+#             # Save new OpenAI file_id
+#             store_uploaded_file_info(
+#                 file_id=file_id,
+#                 openai_file_id=uploaded.id
+#             )
+
+#             print("Uploaded dataset file_id =", uploaded.id)
+
+#         # 4️⃣ Respond
+#         active_version = get_active_dataset_version()
+#         return {
+#             "status": "success",
+#             "message": result["message"],
+#             "active_dataset": active_version
+#         }
+
+#     except Exception as e:
+#         return {
+#             "status": "error",
+#             "message": str(e)
+#         }
+
+
+from assistance import create_assistance,ask_assistance
+#now latest active dataset api
 @app.post("/active_dataset/")
 async def activate_dataset_by_file_id(
     file_id: str = Form(...),
     is_active: bool = Form(...),
     admin: dict = Depends(get_current_admin)
 ):
-    """
-    Activate dataset version by file_id, upload chunks to OpenAI for fine-tuning,
-    and store embeddings in OpenAI vector DB for retrieval.
-    """
     try:
-        # 1️⃣ Update DB status
+        print(file_id,'file id')
+        # 1️⃣ Update DB Status
         result = set_active_dataset_by_file_id(file_id, is_active)
         if result["status"] == "error":
             raise HTTPException(status_code=404, detail=result["message"])
 
         if is_active:
-            # 2️⃣ Fetch dataset info dynamically from DB
-            versions = get_all_dataset_versions()
-            dataset = next((v for v in versions if v["file_id"] == file_id), None)
-            if not dataset:
-                return {"status": "error", "message": "Dataset with file_id not found."}
 
-            # 3️⃣ Get file path
-            filepath = dataset.get("file_path")
-            if not filepath or not os.path.exists(filepath):
-                return {"status": "error", "message": f"File not found: {filepath}"}
+            openai_file_id,assistant_id  = get_file_id_uploded(file_id)
+            if not assistant_id:
+                print(openai_file_id,"===file record====")
+                assistant_id,vectorstore_id =create_assistance(openai_file_id)
+                # Save new OpenAI file_id
+                update_file_id_uploaded(
+                    openai_file_id = openai_file_id,
+                    vectorstore_id=vectorstore_id,
+                    assistant_id=assistant_id
 
-            # Ensure DATASET_DIR exists for chunk files
-            os.makedirs(DATASET_DIR, exist_ok=True)
-
-            # 4️⃣ Read JSON
-            async with aiofiles.open(filepath, "r", encoding="utf-8") as f:
-                content = await f.read()
-                data = json.loads(content)
-
-            # 5️⃣ Convert dataset to LangChain Documents
-            documents = []
-            for record in data:
-                question = record.get("user_input", "").strip()
-                answer = record.get("bot_response", "").strip()
-                if not question and not answer:
-                    continue
-
-                combined_text = f"Question: {question}\nAnswer: {answer}"
-                documents.append(
-                    Document(
-                        page_content=combined_text,
-                        metadata={"dataset_version": dataset["version"]}
-                    )
-                )
-            
-            total_records = len(data)
-            chunk_files = []
-
-            # 5️⃣ Split into chunks
-            CHUNK_SIZE = 2000  # adjust as needed
-            for i in range(0, len(data), CHUNK_SIZE):
-                chunk = data[i:i + CHUNK_SIZE]
-                chunk_file_path = f"{DATASET_DIR}/{dataset['version']}_chunk_{i//CHUNK_SIZE + 1}.jsonl"
-
-                async with aiofiles.open(chunk_file_path, "w", encoding="utf-8") as out:
-                    for record in chunk:
-                        prompt = record.get("user_input", "")
-                        completion = " " + record.get("bot_response", "")
-                        await out.write(json.dumps({"prompt": prompt, "completion": completion}) + "\n")
-
-                chunk_files.append(chunk_file_path)
-
-            # 6️⃣ Upload each chunk to OpenAI and store uploaded file info separately
-            for chunk_path in chunk_files:
-                async with aiofiles.open(chunk_path, "rb") as f:
-                    file_data = await f.read()
-
-                response = await client.files.create(
-                    file=(os.path.basename(chunk_path), file_data),
-                    purpose='fine-tune'  # same as your upload API
                 )
 
-                print('response--->>', response.id)
-
-                # ✅ Store OpenAI file info in separate table
-                store_uploaded_file_info(
-                    file_id=response.id,
-                    chunks_created=1
-                )
-
-            # # 6️⃣ Initialize VectorDBService
-            # vector_db = VectorDBService()
-
-            # # 7️⃣ Split documents into smaller chunks before saving
-            # chunks = vector_db.split_documents(documents)
-
-            # # 8️⃣ Save chunk embeddings to FAISS DB
-            # vector_db.save_vector_db(chunks)
-
-            # # 9️⃣ Optionally, store upload info
-            # store_uploaded_file_info(
-            #     file_id=file_id,
-            #     chunks_created=len(chunks)
-            # )
-
-        # 🔟 Return current active dataset info
+        # 4️⃣ Respond
         active_version = get_active_dataset_version()
         return {
             "status": "success",
             "message": result["message"],
-            "active_version": active_version,
+            "active_dataset": active_version
         }
 
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Unexpected error: {str(e)}"
+            "message": str(e)
         }
+
 
 
 @app.post("/ask_from_active_dataset/")
@@ -1183,44 +1233,23 @@ async def ask_from_active_dataset(question: str = Form(...)):
         file_paths = active_dataset.get("file_paths", [])
         if not file_paths:
             return {"status": "error", "message": "No valid file paths found in active dataset."}
-
-        all_data = []
-
-        # ✅ Load dataset file(s)
-        for path in file_paths:
-            if not os.path.exists(path):
-                return {"status": "error", "message": f"File not found: {path}"}
-
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                all_data.extend(data)
-
-        if not all_data:
-            return {"status": "error", "message": "Dataset file is empty."}
-
-        # ✅ Simple text match
-        best_match = None
-        best_score = 0
-
-        for record in all_data:
-            q = record.get("user_input", "").lower()
-            a = record.get("bot_response", "")
-            if not q or not a:
-                continue
-
-            score = sum(word in q for word in question.lower().split())
-            if score > best_score:
-                best_score = score
-                best_match = a
+        file_id =active_dataset.get("file_ids", [])
+        print(file_id[0],"==ssss=====")
+        _, assistant_id = get_file_id_uploded(file_id[0])
+        print(assistant_id,"===file record====")
+        resp =ask_assistance(assistant_id,question)
+        print(resp,'===resp')
+        
+        best_match = False if "I don’t know".lower() in resp.lower() else True
 
         if not best_match:
             # best_match = "Sorry, I couldn’t find an exact answer in the dataset."
-            best_match = "Sorry, The Paul Group AI couldn’t find an exact answer to your question."
+            resp = "Sorry, The Paul Group AI couldn’t find an exact answer to your question. You can also call our office directly at +1-888-438-8050and we’ll help right away.Go ahead and visit our career page here: https://www.thepaulgroup.biz/career-2/."
 
         return {
             "status": "success",
             "question": question,
-            "answer": best_match,
+            "answer": resp,
             "active_version": active_dataset["version"],
             "file_paths": active_dataset["file_paths"]
         }
@@ -1569,6 +1598,83 @@ def read_appointment(appointment_id: int):
         raise HTTPException(status_code=404, detail="Appointment not found")
     return appt
 
+
+from pydantic import BaseModel
+import asyncio
+
+class QueryRequest(BaseModel):
+    file_id: str          # OpenAI uploaded file id (file-xxxxxx)
+    user_message: str
+
+from openai import OpenAI
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+assistant = OpenAI(api_key=OPENAI_API_KEY)
+openai_client = assistant
+# Wrap sync OpenAI calls inside async
+async def run_sync(func, *args, **kwargs):
+    return await asyncio.to_thread(func, *args, **kwargs)
+@app.post("/assistants/chat/")
+async def assistants_chat(request: QueryRequest):
+    try:
+        print("File ID:", request.file_id)
+
+        # 1) Create vector store  (SYNC)
+        vector_store = await run_sync(
+            client.beta.vector_stores.create,
+            name="dataset_store"
+        )
+
+        # 2) Add file to vector store (SYNC)
+        await run_sync(
+            client.beta.vector_stores.files.create,
+            vector_store_id=vector_store.id,
+            file_id=request.file_id
+        )
+
+        # 3) Create assistant (SYNC)
+        assistant = await run_sync(
+            client.beta.assistants.create,
+            model="gpt-4.1-mini",
+            name="Nia",
+            instructions="Use the dataset to answer user questions.",
+            tool_resources={"vector_stores": [vector_store.id]},
+            tools=[{"type": "file_search"}]
+        )
+
+        # 4) Create thread (SYNC)
+        thread = await run_sync(client.beta.threads.create)
+
+        # 5) Add user message (SYNC)
+        await run_sync(
+            client.beta.threads.messages.create,
+            thread_id=thread.id,
+            role="user",
+            content=request.user_message
+        )
+
+        # 6) Run assistant (SYNC)
+        run = await run_sync(
+            client.beta.threads.runs.create_and_poll,
+            thread_id=thread.id,
+            assistant_id=assistant.id
+        )
+
+        # 7) Get output (SYNC)
+        messages = await run_sync(
+            client.beta.threads.messages.list,
+            thread_id=thread.id
+        )
+
+        answer = None
+        for msg in reversed(messages.data):
+            if msg.role == "assistant" and msg.content:
+                answer = msg.content[0].text.value
+                break
+
+        return {"answer": answer or "Assistant did not return a response"}
+
+    except Exception as e:
+        return {"error": str(e)}
 
 
 

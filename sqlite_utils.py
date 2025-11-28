@@ -475,25 +475,26 @@ def test_recruiting_detection():
             print(f"Response: {response[:100]}...")
         print("-" * 50)
 
-#working code
-def store_uploaded_file_info(file_id: str, chunks_created: int):
+
+
+def store_uploaded_file_info(file_id: str, openai_file_id: str,assistant_id:str=None,vectorstore_id:str=None):
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
 
-    # Create table if not exists
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS uploaded_files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            file_id TEXT,
-            chunks_created INTEGER
+            file_id TEXT UNIQUE,
+            openai_file_id TEXT,
+            assistant_id TEXT NULL,
+            vectorstore_id TEXT NULL
         )
     ''')
 
-    # Insert record
     cursor.execute('''
-        INSERT INTO uploaded_files (file_id, chunks_created)
-        VALUES (?, ?)
-    ''', (file_id, chunks_created))
+        INSERT OR REPLACE INTO uploaded_files (file_id, openai_file_id,assistant_id,vectorstore_id)
+        VALUES (?, ?,?,?)
+    ''', (file_id, openai_file_id,assistant_id,vectorstore_id))
 
     conn.commit()
     conn.close()
@@ -774,6 +775,7 @@ def set_active_dataset_by_file_id(file_id: str, is_active: bool):
             (f'%"{file_id}"%',)
         )
         record = cursor.fetchone()
+        print(record,'==record====')
         if not record:
             return {"status": "error", "message": f"No dataset found with file_id '{file_id}'."}
 
@@ -788,6 +790,61 @@ def set_active_dataset_by_file_id(file_id: str, is_active: bool):
 
     status_text = "active" if is_active else "inactive"
     return {"status": "success", "message": f"Dataset version with file_id '{file_id}' is now {status_text}."}
+
+
+#=============Set Active Dataset by File ID==================
+def get_file_id_uploded(file_id: str):
+    """
+    Activate or deactivate a dataset version based on file_id.
+    Default is is_active=True (activate).
+    """
+    ensure_dataset_versions_table()
+    
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        cursor = conn.cursor()
+        # Find dataset by file_id
+        cursor.execute(
+            "SELECT openai_file_id,assistant_id FROM uploaded_files WHERE file_id = ?", 
+            (f'{file_id}',)
+        )
+        record = cursor.fetchone()
+        print("check get_file_id_uploded",record)
+        if not record:
+            return {"status": "error", "message": f"No dataset found in uploded file_id '{file_id}'."}
+
+        return record
+        
+    
+
+def update_file_id_uploaded(openai_file_id: str, assistant_id: str, vectorstore_id: str):
+    """
+    Update assistant_id and vectorstore_id for a record in uploaded_files table.
+    """
+
+    # store_uploaded_file_info()   # Make sure table exists
+
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        cursor = conn.cursor()
+
+        # Update record
+        cursor.execute(
+            """
+            UPDATE uploaded_files
+            SET assistant_id = ?, vectorstore_id = ?
+            WHERE openai_file_id = ?
+            """,
+            (assistant_id, vectorstore_id, openai_file_id)
+        )
+
+        conn.commit()
+
+        # Check if any row was updated
+        if cursor.rowcount == 0:
+            return {
+                "status": "error",
+                "message": f"No record found with file_id '{openai_file_id}'."
+            }
+
 
 
 
