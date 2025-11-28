@@ -1191,8 +1191,12 @@ async def activate_dataset_by_file_id(
             raise HTTPException(status_code=404, detail=result["message"])
 
         if is_active:
+            uploaded_file_response = get_file_id_uploded(file_id)
 
-            openai_file_id,assistant_id  = get_file_id_uploded(file_id)
+            if "status" in uploaded_file_response and uploaded_file_response["status"] == "error":
+                raise HTTPException(status_code=404, detail=uploaded_file_response["message"])
+
+            openai_file_id,assistant_id  = uploaded_file_response
             if not assistant_id:
                 print(openai_file_id,"===file record====")
                 assistant_id,vectorstore_id =create_assistance(openai_file_id)
@@ -1237,7 +1241,13 @@ async def ask_from_active_dataset(question: str = Form(...)):
             return {"status": "error", "message": "No valid file paths found in active dataset."}
         file_id =active_dataset.get("file_ids", [])
         print(file_id[0],"==ssss=====")
-        _, assistant_id = get_file_id_uploded(file_id[0])
+
+        uploaded_file_response = get_file_id_uploded(file_id[0])
+        if "status" in uploaded_file_response and uploaded_file_response["status"] == "error":
+            raise HTTPException(status_code=404, detail="No Active dataset found!")
+
+        _, assistant_id  = uploaded_file_response
+
         print(assistant_id,"===file record====")
         resp =ask_assistance(assistant_id,question)
         print(resp,'===resp')
