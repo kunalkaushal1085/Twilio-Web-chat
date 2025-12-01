@@ -1,4 +1,3 @@
-.env
 media
 logo
 openenv
@@ -17,3 +16,5 @@ ben.py
 Webchat_dataset/
 app_data/
 webhook_logs/
+config.bat
+node_modules

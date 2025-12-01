@@ -1,3 +1,5 @@
+import utils.transport
+import utils.session
 from typing import List
 from fastapi import FastAPI, HTTPException, status,UploadFile, File,Form,Header,Depends
 import aiofiles
@@ -561,7 +563,12 @@ async def chat_with_bot(chat_request: ChatRequest):
             )
         
     elif lead.qualification_stage == "completed_qualification":
-        bot_message = "Sorry, The Paul Group AI couldn’t find an exact answer to your question. You can also call our office directly at +1-888-438-8050 and we’ll help right away.Go ahead and visit our career page here: https://www.thepaulgroup.biz/career-2/."
+        bot_message = (
+        "You're welcome! We appreciate you providing your details. "
+        "If you need anything else, feel free to reach out. "
+        "You can also contact our office directly at +1-888-438-8050 for immediate assistance, "
+        "or visit our career page here: https://www.thepaulgroup.biz/career-2/."
+    )
         # bot_message = "You're welcome! We appreciate you providing your details. Our agent will be in touch shortly. Is there anything else I can help you with regarding final expense insurance today?"
 
     # Add the bot's response to the conversation history
